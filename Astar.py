@@ -1,5 +1,5 @@
 import heapq
-import math
+import copy
 
 # Node class for A* algorithm
 class Node:
@@ -64,45 +64,42 @@ def reconstruct_path(node):
         node = node.parent
     return path[::-1]
 
-# Dynamic Replanning Function
+#Dynamic Replanning Function
 def dynamic_astar(grid, start, goal, new_fire_cells):
+    # deepcopy to avoid modifying the original grid outside this function
+    grid = copy.deepcopy(grid)
+    
     current_position = start
-    # Copy fire cells to avoid modifying the input list outside
-    fires = list(new_fire_cells)
-    
-    print(f"Initial Planning from {current_position}...")
+    fires = list(new_fire_cells) 
+    replan_count = 0
     current_path = astar(grid, current_position, goal)
-    
+    # If no path exists at the start, return immediately
     if not current_path:
-        print("No initial path found...")
-        return None
+        return None, 0 
 
     final_executed_path = [current_position]
-    
+    # i starts at 1 because current_position is already the first step in the path
     i = 1
     while i < len(current_path):
         next_step = current_path[i]
-        
-        if next_step in fires:
-            print(f"!!! Fire detected at {next_step}. STOPPING at {current_position} to Replan...")
-            
+        # Check if the next step has become a fire cell
+        if next_step in fires:            
             r, c = next_step
             grid[r][c] = 'F'
             fires.remove(next_step)
-            
+            replan_count += 1
+            # Replan from the current position to the goal with the updated grid
             new_plan = astar(grid, current_position, goal)
             
             if not new_plan:
-                print("BLOCK: No safe path remains!")
-                return final_executed_path 
-            
+                return None, replan_count  
+
             current_path = new_plan
-            i = 1 
-            print(f"New path calculated: {current_path}")
-            continue             
-            
+            i = 1
+            continue
+        # Move to the next step
         current_position = next_step
         final_executed_path.append(current_position)
         i += 1
         
-    return final_executed_path
+    return final_executed_path, replan_count

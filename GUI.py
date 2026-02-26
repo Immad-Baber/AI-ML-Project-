@@ -78,8 +78,7 @@ section[data-testid="stSidebar"] { background:#0a0d16; border-right:1px solid #1
 </style>
 """, unsafe_allow_html=True)
 
-#  Already added testcases
-
+#  Preset test cases
 PRESETS = {
     "TC1 — Normal A*": {
         "rows": 3, "cols": 4,
@@ -225,33 +224,6 @@ def result_html(res):
             f'</div>')
 
 
-def run_dynamic_counted(grid, start, goal, fire_cells):
-    replan_count = 0
-    fire_copy    = list(fire_cells)
-    grid_work    = copy.deepcopy(grid)
-    current_pos  = start
-
-    path = astar(copy.deepcopy(grid_work), current_pos, goal)
-    if not path:
-        return None, 0
-
-    i = 1
-    while i < len(path):
-        step = path[i]
-        if step in fire_copy:
-            r, c = step
-            grid_work[r][c] = 'F'
-            fire_copy.remove(step)
-            replan_count += 1
-            path = astar(copy.deepcopy(grid_work), current_pos, goal)
-            if not path:
-                return None, replan_count
-            i = 1
-            continue
-        current_pos = step
-        i += 1
-    return path, replan_count
-
 #  TITLE
 st.markdown("""
 <div class="title-block">
@@ -317,7 +289,6 @@ with left_col:
     st.markdown(render_grid_html(st.session_state.grid, path=path_to_show),
                 unsafe_allow_html=True)
     
-    
     st.markdown("")
 
     # RUN button
@@ -328,7 +299,6 @@ with left_col:
         if s is None or g is None:
             st.error("⚠️ Place both **Start (S)** and **Goal (E)** before running.")
         else:
-            # Work on copies so session grid is never mutated by the algorithm
             grid_copy = copy.deepcopy(st.session_state.grid)
             fire_copy = list(st.session_state.fire_cells)
             sr, sc    = s
@@ -339,15 +309,16 @@ with left_col:
             use_dynamic = (st.session_state.algo_mode == 'dynamic')
 
             if use_dynamic:
-                # Unmark fire in the working grid so they act as future triggers
                 for r, c in fire_copy:
                     grid_copy[r][c] = '.'
-                path, replannings = run_dynamic_counted(grid_copy, s, g, fire_copy)
+
+                path, replannings = dynamic_astar(grid_copy, s, g, fire_copy)
+
                 st.session_state.result = {
                     'path': path, 'mode': 'dynamic', 'replannings': replannings
                 }
             else:
-                # Mark fire as static obstacles
+                # Mark fire as static obstacles for regular A*
                 for r, c in fire_copy:
                     grid_copy[r][c] = 'F'
                 path = astar(grid_copy, s, g)
@@ -392,7 +363,7 @@ with right_col:
     else:
         st.markdown("""
         <div class="result-box" style="color:#333e4e;">
-          ⏳ Configure your grid and press <b>▶ RUN PATHFINDER</b>
+           Configure your grid and press <b>▶ RUN PATHFINDER</b>
         </div>""", unsafe_allow_html=True)
 
     st.markdown("---")
@@ -407,8 +378,6 @@ with right_col:
       </b>
     </div>
     """, unsafe_allow_html=True)
-
-
     st.markdown("---")
     st.markdown('<div class="section-label"> Paint a Cell</div>', unsafe_allow_html=True)
     draw_mode = st.radio(
@@ -436,4 +405,4 @@ with right_col:
     if st.button("  Clear All"):
         init_state(st.session_state.rows, st.session_state.cols)
         st.rerun()
-
+        
