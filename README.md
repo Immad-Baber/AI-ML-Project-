@@ -26,6 +26,7 @@ An interactive pathfinding and emergency evacuation planner built with Python an
 |-- GUI_ML.py                 # ML recommendation and comparison Streamlit app
 |-- train_mode.py             # Generates comparison data and trains recommender
 |-- mode_model.pkl            # Saved recommender model
+|-- fire_model.pkl            # Saved fire-spread probability model
 |-- comparison_results.pkl    # Saved generated comparison scenarios
 |-- requirements.txt          # Python dependencies
 `-- README.md
@@ -42,12 +43,29 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
+Recommended (Windows PowerShell) setup:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
 ## How to Run
+
+Run from the folder that contains `GUI_ML.py`.
 
 Run the full ML recommendation app:
 
 ```bash
 streamlit run GUI_ML.py
+```
+
+If `streamlit` is not recognized, use:
+
+```bash
+python -m streamlit run GUI_ML.py
 ```
 
 Then open the local Streamlit URL shown in the terminal, usually:
@@ -66,7 +84,7 @@ streamlit run GUI_GBFS.py
 
 ## Training the Recommender
 
-The repository already includes `mode_model.pkl`, but you can regenerate it at any time:
+The repository already includes trained model files, but you can regenerate them at any time:
 
 ```bash
 python train_mode.py
@@ -75,7 +93,10 @@ python train_mode.py
 This script creates randomized grid scenarios, evaluates A*, BFS, and GBFS, selects the best algorithm using path length, replanning count, and runtime, then saves:
 
 - `mode_model.pkl`
+- `fire_model.pkl`
 - `comparison_results.pkl`
+
+If model files are missing, run `python train_mode.py` before launching `GUI_ML.py`.
 
 ## Grid Symbols
 
@@ -137,6 +158,31 @@ The app reports the final path, number of steps, and total replans.
 
 The recommender uses these features to estimate whether A*, BFS, or GBFS is most suitable. The app also runs a live comparison on the current grid and shows the measured winner.
 
+### Decision Policy
+
+`GUI_ML.py` supports two final-decision policies:
+
+- **Benchmark Override (recommended):** Uses ML recommendation, then validates with live benchmark and can override ML with the current-grid winner.
+- **Strict ML:** Uses ML prediction as final choice unless it fails to find a path.
+
+Because of this, the final used algorithm may differ from live benchmark when Strict ML is selected.
+
+### Model Confidence (What it means)
+
+The displayed probabilities (for A*, BFS, GBFS) are normalized similarity scores from a centroid-distance recommender:
+
+- Distance to each class centroid is computed from current features.
+- Distances are converted to inverse scores.
+- Scores are normalized to percentages.
+
+`Model Confidence` is the highest of these three percentages.  
+If no path exists in the live benchmark, confidence is shown as `N/A`.
+
+### Fire Prediction in Static vs Dynamic
+
+- **Static mode:** top predicted next-fire cell can be pre-blocked for planning.
+- **Dynamic mode:** predicted next-fire cells are shown as risk forecast only (not pre-blocked); dynamic replanning handles fire events during traversal.
+
 ## Example Workflow
 
 1. Start the app with `streamlit run GUI_ML.py`.
@@ -144,9 +190,17 @@ The recommender uses these features to estimate whether A*, BFS, or GBFS is most
 3. Place a start cell and a goal cell.
 4. Add walls and fire hazards.
 5. Choose `A* static` or `Dynamic` mode.
-6. Click `Run Recommended` to follow the suggested algorithm.
-7. Click `Compare All` to benchmark A*, BFS, and GBFS on the same grid.
-8. Review the fire-risk probability map and comparison table.
+6. Choose decision policy: `Benchmark Override` or `Strict ML`.
+7. Click `Run Recommended` to follow the selected policy.
+8. Click `Compare All` to benchmark A*, BFS, and GBFS on the same grid.
+9. Review the ML-vs-benchmark decision section, diagnostics, and fire-risk probability map.
+
+## Troubleshooting
+
+- **`mode_model.pkl` / `fire_model.pkl` not found:** run `python train_mode.py`.
+- **`streamlit` command not found:** use `python -m streamlit run GUI_ML.py`.
+- **Port already in use:** run with a different port, for example:
+  - `python -m streamlit run GUI_ML.py --server.port 8502`
 
 ## Complexity
 
