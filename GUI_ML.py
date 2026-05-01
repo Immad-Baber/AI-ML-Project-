@@ -702,12 +702,18 @@ with right:
                     '<div class="result-box">ℹ️ Strict ML policy is active, so final used algorithm may differ from live benchmark.</div>',
                     unsafe_allow_html=True,
                 )
-        if predicted_fire and st.session_state.algo_mode != "dynamic":
+        if predicted_fire:
             cells_text = ", ".join([f"{cell} ({prob:.1%})" for cell, prob in predicted_fire])
-            st.markdown(
-                f'<div class="result-box">🔥 Predicted next-fire cells (top {len(predicted_fire)}): <b>{cells_text}</b> (only top-1 is blocked for planning)</div>',
-                unsafe_allow_html=True,
-            )
+            if st.session_state.algo_mode == "dynamic":
+                st.markdown(
+                    f'<div class="result-box">🔥 Predicted next-fire cells (top {len(predicted_fire)}): <b>{cells_text}</b> (risk forecast only in Dynamic mode; cells are not pre-blocked)</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f'<div class="result-box">🔥 Predicted next-fire cells (top {len(predicted_fire)}): <b>{cells_text}</b> (only top-1 is blocked for planning)</div>',
+                    unsafe_allow_html=True,
+                )
         elif fire_model is None:
             st.markdown(f'<div class="result-box">{fire_model_error}</div>', unsafe_allow_html=True)
         for label in ["A*", "BFS", "GBFS"]:
