@@ -311,10 +311,10 @@ def run_algorithm(grid, s, g, fire_cells, algo_name, dynamic):
     return path, replans, runtime_ms
 
 
-def predict_next_fire_cell(grid, fire_cells, fire_model):
-    """Predict most likely next fire cell using trained fire model."""
-    if not fire_cells or fire_model is None:
-        return None
+def predict_next_fire_cells(grid, fire_cells, fire_model, top_k=3):
+    """Predict top-k most likely next-fire cells using trained fire model."""
+    if not fire_cells or fire_model is None or top_k <= 0:
+        return []
     rows, cols = len(grid), len(grid[0])
     candidates = []
     feature_rows = []
@@ -326,14 +326,14 @@ def predict_next_fire_cell(grid, fire_cells, fire_model):
             candidates.append((r, c))
             feature_rows.append(fire_cell_features(grid, fire_cells, (r, c)))
     if not candidates:
-        return None
+        return []
     probs = fire_model.predict_proba(feature_rows)
-    best_idx = max(range(len(candidates)), key=lambda idx: probs[idx])
-    return candidates[best_idx]
+    ranked = sorted(zip(candidates, probs), key=lambda item: item[1], reverse=True)
+    return [(cell, float(prob)) for cell, prob in ranked[: min(top_k, len(ranked))]]
 
 
 def run_algorithm_with_predicted_fire(grid, s, g, fire_cells, algo_name, dynamic, predicted_fire):
-    """Run algorithm after reserving predicted next-fire cell as blocked."""
+    """Run algorithm after reserving only top predicted next-fire cell as blocked."""
     grid_copy = copy.deepcopy(grid)
     if predicted_fire is not None:
         pr, pc = predicted_fire
@@ -342,12 +342,13 @@ def run_algorithm_with_predicted_fire(grid, s, g, fire_cells, algo_name, dynamic
     return run_algorithm(grid_copy, s, g, fire_cells, algo_name, dynamic)
 
 
-def compare_algorithms_live(grid, s, g, fire_cells, dynamic, fire_model):
+def compare_algorithms_live(grid, s, g, fire_cells, dynamic, fire_model, fire_top_k):
     rows_out = []
-    predicted_fire = predict_next_fire_cell(grid, fire_cells, fire_model)
+    predicted_fire_rows = predict_next_fire_cells(grid, fire_cells, fire_model, top_k=fire_top_k)
+    top_predicted_fire = predicted_fire_rows[0][0] if predicted_fire_rows else None
     for algo_name in ["A*", "BFS", "GBFS"]:
         path, replans, runtime_ms = run_algorithm_with_predicted_fire(
-            grid, s, g, fire_cells, algo_name, dynamic, predicted_fire
+            grid, s, g, fire_cells, algo_name, dynamic, top_predicted_fire
         )
         rows_out.append(
             {
@@ -372,7 +373,7 @@ def compare_algorithms_live(grid, s, g, fire_cells, dynamic, fire_model):
         best = None
     for r in rows_out:
         r["Best"] = "✅" if best and r["Algorithm"] == best else ""
-    return rows_out, best, predicted_fire
+    return rows_out, best, predicted_fire_rows
 
 
 def risk_probabilities(grid, fire_cells, fire_model):
@@ -483,6 +484,7 @@ with st.sidebar:
     st.markdown('<div class="section-label">Mode</div>', unsafe_allow_html=True)
     mode = st.radio("Mode", ["A* static", "Dynamic"], label_visibility="collapsed")
     st.session_state.algo_mode = "dynamic" if mode == "Dynamic" else "astar"
+    fire_top_k = 3
 
 left, right = st.columns([3, 2], gap="large")
 
@@ -513,8 +515,10 @@ with left:
                         st.session_state.fire_cells,
                         st.session_state.algo_mode == "dynamic",
                         fire_model,
+                        fire_top_k,
                     )
                     algo_name = live_best or algo_name
+                    predicted_cells = predicted_fire[0][0] if predicted_fire else None
                     path, replans = run_algorithm_with_predicted_fire(
                         st.session_state.grid,
                         s,
@@ -522,7 +526,7 @@ with left:
                         st.session_state.fire_cells,
                         algo_name,
                         st.session_state.algo_mode == "dynamic",
-                        predicted_fire,
+                        predicted_cells,
                     )[:2]
                     st.session_state.result = {"path": path, "mode": algo_name, "replannings": replans}
                     st.rerun()
@@ -539,6 +543,7 @@ with left:
                     st.session_state.fire_cells,
                     st.session_state.algo_mode == "dynamic",
                     fire_model,
+                    fire_top_k,
                 )
                 st.session_state.compare_result = rows_out
 
@@ -554,6 +559,7 @@ with right:
             st.session_state.fire_cells,
             st.session_state.algo_mode == "dynamic",
             fire_model,
+            fire_top_k,
         )
         any_path = any(r["Found Path"] == "Yes" for r in live_rows)
 
@@ -578,9 +584,10 @@ with right:
                 f'<div class="result-box">⚖️ Live benchmark winner on current grid: <b>{live_best}</b></div>',
                 unsafe_allow_html=True,
             )
-        if predicted_fire is not None:
+        if predicted_fire:
+            cells_text = ", ".join([f"{cell} ({prob:.1%})" for cell, prob in predicted_fire])
             st.markdown(
-                f'<div class="result-box">🔥 Predicted next-fire cell: <b>{predicted_fire}</b> (treated as blocked for planning)</div>',
+                f'<div class="result-box">🔥 Predicted next-fire cells (top {len(predicted_fire)}): <b>{cells_text}</b> (only top-1 is blocked for planning)</div>',
                 unsafe_allow_html=True,
             )
         elif fire_model is None:
