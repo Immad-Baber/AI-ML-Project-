@@ -1,210 +1,179 @@
 # Smart Emergency Evacuation Planner
 
-Dynamic A\* Search · Manhattan Heuristic · Fire Replanning Simulation ·
-Streamlit GUI
+An interactive pathfinding and emergency evacuation planner built with Python and Streamlit. The project compares A*, Breadth-First Search (BFS), and Greedy Best-First Search (GBFS) on grid-based evacuation scenarios with walls, fire hazards, dynamic replanning, fire-risk visualization, and a lightweight ML-style algorithm recommender.
 
-------------------------------------------------------------------------
+## Features
 
-## 1. Project Overview
+- Interactive Streamlit grid editor for creating evacuation maps.
+- Static pathfinding where fire cells are treated as blocked obstacles.
+- Dynamic replanning when fire appears on the next planned step.
+- A*, BFS, and GBFS implementations with matching dynamic variants.
+- Algorithm comparison table showing path availability, steps, replans, and runtime.
+- Trained recommender that suggests the best algorithm for the current grid.
+- Fire-risk probability map based on proximity to active fire cells.
+- Built-in presets for normal, fire-heavy, obstacle-heavy, BFS-friendly, and GBFS-friendly scenarios.
 
-The Smart Emergency Evacuation Planner is a grid-based pathfinding
-system built using the A\* search algorithm.
+## Project Structure
 
-It supports:
+```text
+.
+|-- Astar.py                  # A* search and dynamic A* replanning
+|-- BFS.py                    # BFS search and dynamic BFS replanning
+|-- GBFS.py                   # GBFS search and dynamic GBFS replanning
+|-- GUI.py                    # Main A* Streamlit interface
+|-- GUI_BFS.py                # BFS-focused Streamlit interface
+|-- GUI_GBFS.py               # GBFS-focused Streamlit interface
+|-- GUI_ML.py                 # ML recommendation and comparison Streamlit app
+|-- train_mode.py             # Generates comparison data and trains recommender
+|-- mode_model.pkl            # Saved recommender model
+|-- comparison_results.pkl    # Saved generated comparison scenarios
+|-- requirements.txt          # Python dependencies
+`-- README.md
+```
 
-• Static A\* search (fire treated as obstacle)\
-• Dynamic A\* search (fire discovered during traversal and triggers
-replanning)
+## Requirements
 
-The system includes an interactive Streamlit GUI and predefined test
-cases for demonstration.
+- Python 3.8 or higher
+- Streamlit
 
-------------------------------------------------------------------------
+Install dependencies:
 
-## 2. Execution Instructions
+```bash
+pip install -r requirements.txt
+```
 
-### Requirements
+## How to Run
 
-Python 3.8 or higher
+Run the full ML recommendation app:
 
-### Install Dependencies
+```bash
+streamlit run GUI_ML.py
+```
 
-Using requirements.txt:
+Then open the local Streamlit URL shown in the terminal, usually:
 
-    pip install -r requirements.txt
+```text
+http://localhost:8501
+```
 
-Or manually:
+You can also run the individual algorithm demos:
 
-    pip install streamlit
+```bash
+streamlit run GUI.py
+streamlit run GUI_BFS.py
+streamlit run GUI_GBFS.py
+```
 
-(Standard libraries used: heapq, copy)
+## Training the Recommender
 
-------------------------------------------------------------------------
+The repository already includes `mode_model.pkl`, but you can regenerate it at any time:
 
-## 3. How to Run
+```bash
+python train_mode.py
+```
 
-### Run GUI Version
+This script creates randomized grid scenarios, evaluates A*, BFS, and GBFS, selects the best algorithm using path length, replanning count, and runtime, then saves:
 
-    streamlit run GUI.py
+- `mode_model.pkl`
+- `comparison_results.pkl`
 
-Then open in browser:
+## Grid Symbols
 
-    http://localhost:8501
+| Symbol | Meaning |
+| ------ | ------- |
+| `S` | Start position |
+| `E` | Goal/exit position |
+| `#` | Wall or blocked cell |
+| `F` | Fire hazard |
+| `.` | Empty walkable cell |
+| Path highlight | Route found by the selected algorithm |
 
-------------------------------------------------------------------------
+## Algorithms
 
-### Run Algorithm Only (CLI Testing)
+### A*
 
-If using separate test files:
+A* uses both the cost already traveled and the Manhattan distance to the goal:
 
-    python testCase.py
-
-------------------------------------------------------------------------
-
-## 4. Preset Test Cases Included
-
-The GUI contains the following preset scenarios:
-
-TC1 --- Normal A\* - Standard grid with walls - Static mode
-
-TC2 --- Fire Avoidance - Fire treated as static obstacle - Static mode
-
-TC3A --- Dynamic Replan (fire @1,0) - Fire discovered during traversal -
-Dynamic mode
-
-TC3B --- Dynamic Replan (fire @1,1) - Different fire location - Dynamic
-mode
-
-TC4 --- No Possible Path - Goal completely blocked - Static mode
-
-Custom (blank grid) - User-defined grid
-
-------------------------------------------------------------------------
-
-## 5. Sample Input / Output Demonstrations
-
-### Example 1 --- TC1 Normal A\*
-
-Grid:
-
-S . . . \# \# . \# . . . E
-
-Mode: Static A\*
-
-Output:
-
-Path Found\
-Steps: 5\
-Replans: 0
-
-Path: (0,0) → (0,1) → (0,2) → (1,2) → (2,2) → (2,3)
-
-------------------------------------------------------------------------
-
-### Example 2 --- TC3A Dynamic Replan
-
-Grid (fire at 1,0 discovered during traversal):
-
-S . . . . . . . . . . E
-
-Hidden Fire: (1,0)
-
-Mode: Dynamic A\*
-
-Output:
-
-Path Found\
-Steps: 6\
-Replans: 1
-
-Path (after replanning): (0,0) → (0,1) → (0,2) → (1,2) → (2,2) → (2,3)
-
-------------------------------------------------------------------------
-
-### Example 3 --- TC4 No Possible Path
-
-Grid:
-
-S \# \# \# \# . . . \# . . E
-
-Output:
-
-No Path Found\
-Steps: 0\
-Replans: 0
-
-------------------------------------------------------------------------
-
-## 6. Technical Implementation Overview
-
-### A\* Algorithm
-
-The A\* search algorithm selects nodes based on:
-
-    f(n) = g(n) + h(n)
+```text
+f(n) = g(n) + h(n)
+```
 
 Where:
 
-g(n) = cost from start to node\
-h(n) = Manhattan heuristic\
-f(n) = estimated total cost
+- `g(n)` is the path cost from the start to the current node.
+- `h(n)` is the Manhattan distance to the goal.
+- `f(n)` is the estimated total cost.
 
-Heuristic used:
+### BFS
 
-    h(a,b) = |row1 - row2| + |col1 - col2|
+BFS explores the grid level by level. Because every move has equal cost, BFS finds the shortest path in terms of number of steps when a path exists.
 
-Movement: 4-directional (up, down, left, right)\
-Cost per move: 1
+### GBFS
 
-Priority queue implementation: heapq\
-Best g-cost tracking: dictionary (best_g)
+GBFS chooses the next cell using only the heuristic distance to the goal. It is often fast in open grids, but it does not guarantee the shortest path in all obstacle layouts.
 
-------------------------------------------------------------------------
+## Dynamic Replanning
 
-### Dynamic A\* Strategy
+Dynamic mode simulates fire appearing during traversal:
 
-1.  Compute initial path ignoring new fire cells.
-2.  Traverse path step-by-step.
-3.  If next step becomes fire: • Mark cell as blocked\
-    • Increment replan counter\
-    • Re-run A\* from current position\
-4.  Continue until goal reached or no path exists.
+1. The algorithm plans an initial path.
+2. The agent follows the path step by step.
+3. If the next step becomes a fire cell, that cell is marked blocked.
+4. The algorithm replans from the current position.
+5. The process continues until the goal is reached or no valid path remains.
 
-Final output includes: • Complete executed path\
-• Total replanning count
+The app reports the final path, number of steps, and total replans.
 
-------------------------------------------------------------------------
+## ML Recommendation
 
-## 7. Complexity Analysis
+`GUI_ML.py` extracts simple scenario features from the current grid:
 
-Static A\*: Time: O(E log V)\
-Space: O(V)
+- Number of rows
+- Number of columns
+- Wall count
+- Fire count
+- Obstacle density
+- Manhattan distance from start to goal
 
-Dynamic Mode: Worst Case: O(k × A\*)\
-Where k = number of replans
+The recommender uses these features to estimate whether A*, BFS, or GBFS is most suitable. The app also runs a live comparison on the current grid and shows the measured winner.
 
-------------------------------------------------------------------------
+## Example Workflow
 
-## 8. Grid Symbols
+1. Start the app with `streamlit run GUI_ML.py`.
+2. Load a preset or create a custom grid.
+3. Place a start cell and a goal cell.
+4. Add walls and fire hazards.
+5. Choose `A* static` or `Dynamic` mode.
+6. Click `Run Recommended` to follow the suggested algorithm.
+7. Click `Compare All` to benchmark A*, BFS, and GBFS on the same grid.
+8. Review the fire-risk probability map and comparison table.
 
-S → Start\
-E → Goal\
-\# → Wall (blocked)\
-F → Fire\
-. → Empty cell
+## Complexity
 
-------------------------------------------------------------------------
+| Algorithm | Time Complexity | Space Complexity |
+| --------- | --------------- | ---------------- |
+| A* | `O(E log V)` with a priority queue | `O(V)` |
+| BFS | `O(V + E)` | `O(V)` |
+| GBFS | `O(E log V)` with a priority queue | `O(V)` |
 
-## 9. Learning Outcomes
+For dynamic replanning, the worst case is approximately:
 
-• Implementation of informed search (A\*)\
-• Heuristic design and admissibility\
-• Real-time replanning in dynamic environments\
-• Use of priority queues\
-• Interactive visualization with Streamlit
+```text
+O(k * algorithm_cost)
+```
 
-------------------------------------------------------------------------
+Where `k` is the number of replanning events.
 
-## 10. License
+## Learning Outcomes
 
-Developed for academic purposes.
+- Informed search using A* and Manhattan distance.
+- Uninformed shortest-path search using BFS.
+- Heuristic-first search using GBFS.
+- Dynamic replanning in changing environments.
+- Algorithm benchmarking and comparison.
+- Lightweight model training with generated scenarios.
+- Interactive visualization with Streamlit.
+
+## License
+
+Developed for academic and learning purposes.
