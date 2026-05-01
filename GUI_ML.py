@@ -144,6 +144,21 @@ PRESETS = {
         "fire": [],
         "mode": "astar",
     },
+    "TC- Dynamic Replan Demo": {
+        "rows": 5,
+        "cols": 5,
+        "grid": [
+            ["#", "#", "#", "#", "#"],
+            ["#", ".", ".", ".", "#"],
+            [".", ".", ".", ".", "."],
+            ["#", "#", "#", "#", "#"],
+            ["#", "#", "#", "#", "#"],
+        ],
+        "start": (2, 0),
+        "goal": (2, 4),
+        "fire": [(2, 2)],
+        "mode": "dynamic",
+    },
     "Custom (blank grid)": {
         "rows": 6,
         "cols": 8,
@@ -335,9 +350,11 @@ def predict_next_fire_cells(grid, fire_cells, fire_model, top_k=3):
 
 
 def run_algorithm_with_predicted_fire(grid, s, g, fire_cells, algo_name, dynamic, predicted_fire):
-    """Run algorithm after reserving only top predicted next-fire cell as blocked."""
+    """Run algorithm; pre-block predicted fire only for static mode."""
     grid_copy = copy.deepcopy(grid)
-    if predicted_fire is not None:
+    # In dynamic mode, fire events are already handled through replanning.
+    # Pre-blocking predicted fire here can create false "no path" outcomes.
+    if (not dynamic) and predicted_fire is not None:
         pr, pc = predicted_fire
         if (pr, pc) not in (s, g) and grid_copy[pr][pc] not in ("#", "F"):
             grid_copy[pr][pc] = "F"
@@ -412,6 +429,15 @@ def ml_diagnostics_for_current_grid(model, feats, live_best):
     raw_probs = model.predict_proba([feats])[0]
     probs = {label: float(raw_probs.get(label, 0.0)) for label in ["A*", "BFS", "GBFS"]}
     pred = model.predict([feats])[0]
+    any_path = live_best is not None
+    if not any_path:
+        return {
+            "prediction": "N/A (no path in benchmark)",
+            "prediction_type": "ML recommender (centroid-distance classifier)",
+            "confidence": None,
+            "agreement_with_benchmark": None,
+            "scenario_accuracy_proxy": None,
+        }
     confidence = max(probs.values()) if probs else 0.0
     agreement = bool(live_best and pred == live_best)
     return {
@@ -585,6 +611,21 @@ with left:
                         st.session_state.algo_mode == "dynamic",
                         predicted_cells,
                     )[:2]
+                    # Safety fallback: if chosen run fails but benchmark had a valid winner, use benchmark winner.
+                    if (not path) and live_best and algo_name != live_best:
+                        algo_name = live_best
+                        decision_reason = (
+                            f"{decision_reason} Fallback applied because selected algorithm failed to find a path."
+                        )
+                        path, replans = run_algorithm_with_predicted_fire(
+                            st.session_state.grid,
+                            s,
+                            g,
+                            st.session_state.fire_cells,
+                            algo_name,
+                            st.session_state.algo_mode == "dynamic",
+                            predicted_cells,
+                        )[:2]
                     st.session_state.result = {
                         "path": path,
                         "mode": algo_name,
@@ -594,6 +635,9 @@ with left:
                         "decision_reason": decision_reason,
                         "decision_policy": decision_policy_label,
                     }
+                    # Keep comparison view in sync with the same run to avoid stale-table confusion.
+                    st.session_state.compare_result = live_rows
+                    st.session_state.compare_meta = ml_diagnostics_for_current_grid(model, feats, live_best)
                     st.rerun()
     with c2:
         if st.button("📊 Compare All"):
@@ -653,7 +697,12 @@ with right:
                 f'<div class="result-box">⚖️ Live benchmark winner on current grid: <b>{live_best}</b></div>',
                 unsafe_allow_html=True,
             )
-        if predicted_fire:
+            if decision_policy == "ml":
+                st.markdown(
+                    '<div class="result-box">ℹ️ Strict ML policy is active, so final used algorithm may differ from live benchmark.</div>',
+                    unsafe_allow_html=True,
+                )
+        if predicted_fire and st.session_state.algo_mode != "dynamic":
             cells_text = ", ".join([f"{cell} ({prob:.1%})" for cell, prob in predicted_fire])
             st.markdown(
                 f'<div class="result-box">🔥 Predicted next-fire cells (top {len(predicted_fire)}): <b>{cells_text}</b> (only top-1 is blocked for planning)</div>',
@@ -744,18 +793,29 @@ with right:
         compare_meta = st.session_state.get("compare_meta")
         if compare_meta:
             st.markdown('<div class="section-label">ML Comparison Diagnostics</div>', unsafe_allow_html=True)
+            conf_text = "N/A (no path found)" if compare_meta["confidence"] is None else f"{compare_meta['confidence']:.2%}"
+            agree_text = (
+                "N/A (no benchmark winner)"
+                if compare_meta["agreement_with_benchmark"] is None
+                else ("Yes" if compare_meta["agreement_with_benchmark"] else "No")
+            )
+            proxy_text = (
+                "N/A"
+                if compare_meta["scenario_accuracy_proxy"] is None
+                else f"{compare_meta['scenario_accuracy_proxy']:.0%}"
+            )
             st.table(
                 [
                     {"Metric": "Prediction Type", "Value": compare_meta["prediction_type"]},
                     {"Metric": "ML Prediction", "Value": compare_meta["prediction"]},
-                    {"Metric": "Model Confidence", "Value": f"{compare_meta['confidence']:.2%}"},
+                    {"Metric": "Model Confidence", "Value": conf_text},
                     {
                         "Metric": "Agreement with Benchmark",
-                        "Value": "Yes" if compare_meta["agreement_with_benchmark"] else "No",
+                        "Value": agree_text,
                     },
                     {
                         "Metric": "Scenario Accuracy (proxy)",
-                        "Value": f"{compare_meta['scenario_accuracy_proxy']:.0%}",
+                        "Value": proxy_text,
                     },
                 ]
             )
