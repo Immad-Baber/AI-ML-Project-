@@ -172,6 +172,7 @@ def init_state(rows, cols):
     st.session_state.fire_cells = []
     st.session_state.result = None
     st.session_state.compare_result = None
+    st.session_state.compare_meta = None
     st.session_state.rows = rows
     st.session_state.cols = cols
     st.session_state.algo_mode = "astar"
@@ -190,6 +191,7 @@ def load_preset(name):
         st.session_state.grid[r][c] = "F"
     st.session_state.result = None
     st.session_state.compare_result = None
+    st.session_state.compare_meta = None
     st.session_state.algo_mode = p["mode"]
 
 
@@ -376,6 +378,51 @@ def compare_algorithms_live(grid, s, g, fire_cells, dynamic, fire_model, fire_to
     return rows_out, best, predicted_fire_rows
 
 
+def choose_final_algorithm(ml_algo, live_rows, live_best):
+    """Choose final algorithm and explain why benchmark may override ML."""
+    if not ml_algo:
+        return live_best, "ML model unavailable, using live benchmark."
+
+    ml_row = next((r for r in live_rows if r["Algorithm"] == ml_algo), None)
+    if live_best is None:
+        return ml_algo, "No algorithm found a path in live benchmark; keeping ML prediction."
+    if live_best == ml_algo:
+        return ml_algo, "ML matches live benchmark on this grid."
+    if ml_row and ml_row["Found Path"] == "No":
+        return live_best, f"ML choice ({ml_algo}) found no path; switched to live benchmark winner."
+    return live_best, f"Live benchmark on this exact grid is better than ML choice ({ml_algo})."
+
+
+def choose_final_algorithm_by_policy(ml_algo, live_rows, live_best, policy):
+    """Apply user-selected policy for final algorithm choice."""
+    if policy == "ml":
+        if not ml_algo:
+            return live_best, "Strict ML selected, but ML unavailable; fallback to live benchmark."
+        ml_row = next((r for r in live_rows if r["Algorithm"] == ml_algo), None)
+        if ml_row and ml_row["Found Path"] == "No" and live_best:
+            return live_best, "Strict ML selected, but ML found no path; fallback to live benchmark."
+        return ml_algo, "Strict ML policy selected."
+    return choose_final_algorithm(ml_algo, live_rows, live_best)
+
+
+def ml_diagnostics_for_current_grid(model, feats, live_best):
+    """Return model prediction diagnostics for the current scenario."""
+    if model is None:
+        return None
+    raw_probs = model.predict_proba([feats])[0]
+    probs = {label: float(raw_probs.get(label, 0.0)) for label in ["A*", "BFS", "GBFS"]}
+    pred = model.predict([feats])[0]
+    confidence = max(probs.values()) if probs else 0.0
+    agreement = bool(live_best and pred == live_best)
+    return {
+        "prediction": pred,
+        "prediction_type": "ML recommender (centroid-distance classifier)",
+        "confidence": confidence,
+        "agreement_with_benchmark": agreement,
+        "scenario_accuracy_proxy": 1.0 if agreement else 0.0,
+    }
+
+
 def risk_probabilities(grid, fire_cells, fire_model):
     rows, cols = len(grid), len(grid[0])
     probs = [[0.0 for _ in range(cols)] for _ in range(rows)]
@@ -484,6 +531,14 @@ with st.sidebar:
     st.markdown('<div class="section-label">Mode</div>', unsafe_allow_html=True)
     mode = st.radio("Mode", ["A* static", "Dynamic"], label_visibility="collapsed")
     st.session_state.algo_mode = "dynamic" if mode == "Dynamic" else "astar"
+    st.markdown("---")
+    st.markdown('<div class="section-label">Decision Policy</div>', unsafe_allow_html=True)
+    decision_policy_label = st.radio(
+        "Decision policy",
+        ["Benchmark Override (recommended)", "Strict ML"],
+        label_visibility="collapsed",
+    )
+    decision_policy = "benchmark" if decision_policy_label.startswith("Benchmark") else "ml"
     fire_top_k = 3
 
 left, right = st.columns([3, 2], gap="large")
@@ -506,9 +561,9 @@ with left:
                     st.error(model_error)
                 else:
                     feats = extract_features(st.session_state.grid, st.session_state.fire_cells, s, g)
-                    algo_name = model.predict([feats])[0]
+                    ml_algo = model.predict([feats])[0]
                     # Validate recommendation against current grid's measured performance.
-                    _, live_best, predicted_fire = compare_algorithms_live(
+                    live_rows, live_best, predicted_fire = compare_algorithms_live(
                         st.session_state.grid,
                         s,
                         g,
@@ -517,7 +572,9 @@ with left:
                         fire_model,
                         fire_top_k,
                     )
-                    algo_name = live_best or algo_name
+                    algo_name, decision_reason = choose_final_algorithm_by_policy(
+                        ml_algo, live_rows, live_best, decision_policy
+                    )
                     predicted_cells = predicted_fire[0][0] if predicted_fire else None
                     path, replans = run_algorithm_with_predicted_fire(
                         st.session_state.grid,
@@ -528,7 +585,15 @@ with left:
                         st.session_state.algo_mode == "dynamic",
                         predicted_cells,
                     )[:2]
-                    st.session_state.result = {"path": path, "mode": algo_name, "replannings": replans}
+                    st.session_state.result = {
+                        "path": path,
+                        "mode": algo_name,
+                        "replannings": replans,
+                        "ml_mode": ml_algo,
+                        "benchmark_mode": live_best,
+                        "decision_reason": decision_reason,
+                        "decision_policy": decision_policy_label,
+                    }
                     st.rerun()
     with c2:
         if st.button("📊 Compare All"):
@@ -546,6 +611,10 @@ with left:
                     fire_top_k,
                 )
                 st.session_state.compare_result = rows_out
+                model, _ = load_mode_model()
+                feats = extract_features(st.session_state.grid, st.session_state.fire_cells, s, g)
+                live_best = next((r["Algorithm"] for r in rows_out if r.get("Best") == "✅"), None)
+                st.session_state.compare_meta = ml_diagnostics_for_current_grid(model, feats, live_best)
 
 with right:
     st.markdown('<div class="section-label">ML Recommendation</div>', unsafe_allow_html=True)
@@ -643,10 +712,28 @@ with right:
         st.markdown("---")
         result = st.session_state.result
         path = result["path"]
+        ml_mode = result.get("ml_mode")
+        benchmark_mode = result.get("benchmark_mode")
+        decision_reason = result.get("decision_reason")
         if path:
             st.write(f"Mode used: {result['mode']}")
             st.write(f"Steps: {len(path)-1}")
             st.write(f"Replans: {result['replannings']}")
+            st.write(f"Decision policy: {result.get('decision_policy', 'Benchmark Override (recommended)')}")
+            if ml_mode and benchmark_mode:
+                st.markdown(
+                    '<div class="section-label">ML vs Benchmark Decision</div>',
+                    unsafe_allow_html=True,
+                )
+                st.table(
+                    [
+                        {"Source": "ML Prediction", "Algorithm": ml_mode},
+                        {"Source": "Live Benchmark", "Algorithm": benchmark_mode},
+                        {"Source": "Final Used", "Algorithm": result["mode"]},
+                    ]
+                )
+                if decision_reason:
+                    st.info(decision_reason)
         else:
             st.write("No path found.")
 
@@ -654,3 +741,24 @@ with right:
         st.markdown("---")
         st.markdown('<div class="section-label">Comparison Table</div>', unsafe_allow_html=True)
         st.table(st.session_state.compare_result)
+        compare_meta = st.session_state.get("compare_meta")
+        if compare_meta:
+            st.markdown('<div class="section-label">ML Comparison Diagnostics</div>', unsafe_allow_html=True)
+            st.table(
+                [
+                    {"Metric": "Prediction Type", "Value": compare_meta["prediction_type"]},
+                    {"Metric": "ML Prediction", "Value": compare_meta["prediction"]},
+                    {"Metric": "Model Confidence", "Value": f"{compare_meta['confidence']:.2%}"},
+                    {
+                        "Metric": "Agreement with Benchmark",
+                        "Value": "Yes" if compare_meta["agreement_with_benchmark"] else "No",
+                    },
+                    {
+                        "Metric": "Scenario Accuracy (proxy)",
+                        "Value": f"{compare_meta['scenario_accuracy_proxy']:.0%}",
+                    },
+                ]
+            )
+            st.caption(
+                "Scenario accuracy (proxy) means ML-vs-live benchmark agreement on this current grid only."
+            )
