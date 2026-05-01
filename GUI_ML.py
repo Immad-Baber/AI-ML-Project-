@@ -67,7 +67,7 @@ section[data-testid="stSidebar"] { background:#0a0d16; border-right:1px solid #1
 )
 
 PRESETS = {
-    "TC1 — Normal A*": {
+    "TC1 — Normal": {
         "rows": 3,
         "cols": 4,
         "grid": [[".", ".", ".", "."], ["#", "#", ".", "#"], [".", ".", ".", "."]],
@@ -77,62 +77,70 @@ PRESETS = {
         "mode": "astar",
     },
     "TC2 — Fire Avoidance": {
-        "rows": 3,
-        "cols": 4,
-        "grid": [[".", ".", ".", "."], [".", "#", ".", "."], [".", ".", ".", "."]],
-        "start": (0, 0),
-        "goal": (2, 3),
-        "fire": [(0, 2), (1, 2)],
-        "mode": "astar",
-    },
-    "TC-BFS — Small maze (BFS often best by time)": {
         "rows": 5,
-        "cols": 5,
+        "cols": 6,
         "grid": [
-            [".", "#", ".", ".", "."],
-            [".", "#", ".", "#", "."],
-            [".", ".", ".", "#", "."],
-            ["#", "#", ".", "#", "."],
-            [".", ".", ".", ".", "."],
+            [".", ".", ".", ".", ".", "."],
+            [".", "#", "#", ".", "#", "."],
+            [".", ".", ".", ".", "#", "."],
+            [".", "#", ".", ".", ".", "."],
+            [".", ".", ".", "#", ".", "."],
         ],
         "start": (0, 0),
-        "goal": (4, 4),
+        "goal": (4, 5),
+        "fire": [(1, 3), (3, 2)],
+        "mode": "astar",
+    },
+    "TC- Small maze (BFS often best by time)": {
+        "rows": 6,
+        "cols": 6,
+        "grid": [
+            [".", ".", "#", ".", ".", "."],
+            ["#", ".", "#", ".", "#", "."],
+            [".", ".", ".", ".", "#", "."],
+            [".", "#", "#", ".", ".", "."],
+            [".", ".", ".", "#", ".", "#"],
+            [".", "#", ".", ".", ".", "."],
+        ],
+        "start": (0, 0),
+        "goal": (5, 5),
         "fire": [],
         "mode": "astar",
     },
-    "TC-A* — Dense obstacles + fire": {
+    "TC- Dense obstacles + fire": {
         "rows": 7,
         "cols": 7,
         "grid": [
-            [".", ".", "#", ".", ".", ".", "."],
-            ["#", ".", "#", ".", "#", "#", "."],
-            [".", ".", ".", ".", ".", "#", "."],
-            [".", "#", "#", "#", ".", "#", "."],
             [".", ".", ".", "#", ".", ".", "."],
+            [".", "#", ".", "#", ".", "#", "."],
             [".", "#", ".", ".", ".", "#", "."],
             [".", ".", ".", "#", ".", ".", "."],
+            ["#", "#", ".", "#", ".", "#", "."],
+            [".", ".", ".", ".", ".", "#", "."],
+            [".", "#", "#", "#", ".", ".", "."],
         ],
         "start": (0, 0),
         "goal": (6, 6),
-        "fire": [(2, 4), (4, 1), (5, 3)],
+        "fire": [(1, 4), (3, 1), (5, 5)],
         "mode": "dynamic",
     },
-    "TC-GBFS — Open field (GBFS often best by time)": {
-        "rows": 9,
-        "cols": 9,
+    "TC- Open field (GBFS often best by time)": {
+        "rows": 10,
+        "cols": 10,
         "grid": [
-            [".", ".", ".", ".", ".", ".", ".", ".", "."],
-            [".", ".", ".", ".", ".", ".", ".", ".", "."],
-            [".", ".", ".", ".", ".", ".", ".", ".", "."],
-            [".", ".", ".", ".", ".", ".", ".", ".", "."],
-            [".", ".", ".", ".", ".", ".", ".", ".", "."],
-            [".", ".", ".", ".", ".", ".", ".", ".", "."],
-            [".", ".", ".", ".", ".", ".", ".", ".", "."],
-            [".", ".", ".", ".", ".", ".", ".", ".", "."],
-            [".", ".", ".", ".", ".", ".", ".", ".", "."],
+            [".", ".", ".", ".", ".", ".", ".", ".", ".", "."],
+            [".", ".", ".", ".", ".", ".", ".", ".", ".", "."],
+            [".", ".", ".", ".", ".", ".", ".", ".", ".", "."],
+            [".", ".", ".", ".", "#", ".", ".", ".", ".", "."],
+            [".", ".", ".", ".", "#", ".", ".", ".", ".", "."],
+            [".", ".", ".", ".", ".", ".", ".", ".", ".", "."],
+            [".", ".", ".", ".", ".", ".", ".", ".", ".", "."],
+            [".", ".", ".", ".", ".", ".", ".", ".", ".", "."],
+            [".", ".", ".", ".", ".", ".", ".", ".", ".", "."],
+            [".", ".", ".", ".", ".", ".", ".", ".", ".", "."],
         ],
         "start": (0, 0),
-        "goal": (8, 8),
+        "goal": (9, 9),
         "fire": [],
         "mode": "astar",
     },
@@ -242,6 +250,48 @@ def load_mode_model():
         return None, f"Could not load {model_path.name}: {exc}"
 
 
+def load_fire_model():
+    model_path = Path(__file__).with_name("fire_model.pkl")
+    if not model_path.exists():
+        return None, f"{model_path.name} not found. Run train_mode.py first."
+
+    class FireModelUnpickler(pickle.Unpickler):
+        def find_class(self, module, name):
+            if module == "__main__" and name == "FireSpreadModel":
+                from train_mode import FireSpreadModel
+
+                return FireSpreadModel
+            return super().find_class(module, name)
+
+    try:
+        with open(model_path, "rb") as f:
+            return FireModelUnpickler(f).load(), None
+    except Exception as exc:
+        return None, f"Could not load {model_path.name}: {exc}"
+
+
+def fire_cell_features(grid, fire_cells, pos):
+    rows, cols = len(grid), len(grid[0])
+    wall_count = sum(row.count("#") for row in grid)
+    fire_count = len(fire_cells)
+    obstacle_density = (wall_count + fire_count) / (rows * cols)
+    r, c = pos
+
+    burning_neighbors = 0
+    fire_set = set(fire_cells)
+    for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        nr, nc = r + dr, c + dc
+        if 0 <= nr < rows and 0 <= nc < cols and (nr, nc) in fire_set:
+            burning_neighbors += 1
+
+    if fire_cells:
+        min_dist = min(abs(r - fr) + abs(c - fc) for fr, fc in fire_cells)
+    else:
+        min_dist = rows + cols
+
+    return [rows, cols, wall_count, fire_count, obstacle_density, burning_neighbors, min_dist]
+
+
 def run_algorithm(grid, s, g, fire_cells, algo_name, dynamic):
     import time
     grid_copy = copy.deepcopy(grid)
@@ -261,26 +311,25 @@ def run_algorithm(grid, s, g, fire_cells, algo_name, dynamic):
     return path, replans, runtime_ms
 
 
-def predict_next_fire_cell(grid, fire_cells):
-    """Predict most likely next fire cell using local spread scoring."""
-    if not fire_cells:
+def predict_next_fire_cell(grid, fire_cells, fire_model):
+    """Predict most likely next fire cell using trained fire model."""
+    if not fire_cells or fire_model is None:
         return None
     rows, cols = len(grid), len(grid[0])
-    candidates = {}
-    for fr, fc in fire_cells:
-        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            r, c = fr + dr, fc + dc
-            if not (0 <= r < rows and 0 <= c < cols):
+    candidates = []
+    feature_rows = []
+    fire_set = set(fire_cells)
+    for r in range(rows):
+        for c in range(cols):
+            if grid[r][c] in ("#", "F") or (r, c) in fire_set:
                 continue
-            if grid[r][c] in ("#", "F"):
-                continue
-            # Higher score if cell is close to multiple fire cells.
-            score = candidates.get((r, c), 0.0)
-            score += 1.0
-            candidates[(r, c)] = score
+            candidates.append((r, c))
+            feature_rows.append(fire_cell_features(grid, fire_cells, (r, c)))
     if not candidates:
         return None
-    return max(candidates.items(), key=lambda kv: kv[1])[0]
+    probs = fire_model.predict_proba(feature_rows)
+    best_idx = max(range(len(candidates)), key=lambda idx: probs[idx])
+    return candidates[best_idx]
 
 
 def run_algorithm_with_predicted_fire(grid, s, g, fire_cells, algo_name, dynamic, predicted_fire):
@@ -293,9 +342,9 @@ def run_algorithm_with_predicted_fire(grid, s, g, fire_cells, algo_name, dynamic
     return run_algorithm(grid_copy, s, g, fire_cells, algo_name, dynamic)
 
 
-def compare_algorithms_live(grid, s, g, fire_cells, dynamic):
+def compare_algorithms_live(grid, s, g, fire_cells, dynamic, fire_model):
     rows_out = []
-    predicted_fire = predict_next_fire_cell(grid, fire_cells)
+    predicted_fire = predict_next_fire_cell(grid, fire_cells, fire_model)
     for algo_name in ["A*", "BFS", "GBFS"]:
         path, replans, runtime_ms = run_algorithm_with_predicted_fire(
             grid, s, g, fire_cells, algo_name, dynamic, predicted_fire
@@ -326,11 +375,13 @@ def compare_algorithms_live(grid, s, g, fire_cells, dynamic):
     return rows_out, best, predicted_fire
 
 
-def risk_probabilities(grid, fire_cells):
+def risk_probabilities(grid, fire_cells, fire_model):
     rows, cols = len(grid), len(grid[0])
     probs = [[0.0 for _ in range(cols)] for _ in range(rows)]
-    if not fire_cells:
+    if not fire_cells or fire_model is None:
         return probs
+    feature_rows = []
+    refs = []
     for r in range(rows):
         for c in range(cols):
             if grid[r][c] == "#":
@@ -339,11 +390,11 @@ def risk_probabilities(grid, fire_cells):
             if (r, c) in fire_cells:
                 probs[r][c] = 1.0
                 continue
-            score = 0.0
-            for fr, fc in fire_cells:
-                dist = abs(r - fr) + abs(c - fc)
-                score += 1.0 / (dist + 1.0)
-            probs[r][c] = min(1.0, score / 2.0)
+            refs.append((r, c))
+            feature_rows.append(fire_cell_features(grid, fire_cells, (r, c)))
+    pred_probs = fire_model.predict_proba(feature_rows) if feature_rows else []
+    for (r, c), p in zip(refs, pred_probs):
+        probs[r][c] = max(0.0, min(1.0, float(p)))
     return probs
 
 
@@ -441,6 +492,7 @@ with left:
     st.markdown(render_grid_html(st.session_state.grid, path=path_to_show), unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
+    fire_model, fire_model_error = load_fire_model()
     with c1:
         if st.button("▶ Run Recommended"):
             s, g = st.session_state.start, st.session_state.goal
@@ -460,6 +512,7 @@ with left:
                         g,
                         st.session_state.fire_cells,
                         st.session_state.algo_mode == "dynamic",
+                        fire_model,
                     )
                     algo_name = live_best or algo_name
                     path, replans = run_algorithm_with_predicted_fire(
@@ -485,6 +538,7 @@ with left:
                     g,
                     st.session_state.fire_cells,
                     st.session_state.algo_mode == "dynamic",
+                    fire_model,
                 )
                 st.session_state.compare_result = rows_out
 
@@ -499,6 +553,7 @@ with right:
             g,
             st.session_state.fire_cells,
             st.session_state.algo_mode == "dynamic",
+            fire_model,
         )
         any_path = any(r["Found Path"] == "Yes" for r in live_rows)
 
@@ -528,6 +583,8 @@ with right:
                 f'<div class="result-box">🔥 Predicted next-fire cell: <b>{predicted_fire}</b> (treated as blocked for planning)</div>',
                 unsafe_allow_html=True,
             )
+        elif fire_model is None:
+            st.markdown(f'<div class="result-box">{fire_model_error}</div>', unsafe_allow_html=True)
         for label in ["A*", "BFS", "GBFS"]:
             p = float(probs.get(label, 0.0))
             st.write(f"{label}: {p:.2%}")
@@ -540,7 +597,7 @@ with right:
 
     st.markdown("---")
     st.markdown('<div class="section-label">Fire Risk Probability Map</div>', unsafe_allow_html=True)
-    rp = risk_probabilities(st.session_state.grid, st.session_state.fire_cells)
+    rp = risk_probabilities(st.session_state.grid, st.session_state.fire_cells, fire_model)
     st.markdown(render_grid_html(st.session_state.grid, risk=rp), unsafe_allow_html=True)
     if st.session_state.fire_cells:
         flat = [p for row in rp for p in row]
