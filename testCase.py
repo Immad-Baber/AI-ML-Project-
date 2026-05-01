@@ -1,4 +1,4 @@
-from Astar import astar, dynamic_astar
+#from Astar import astar, dynamic_astar
 
 # Test Case 1: Normal A*
 grid1 = [

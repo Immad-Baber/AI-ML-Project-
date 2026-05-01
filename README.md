@@ -1,225 +1,210 @@
 # Smart Emergency Evacuation Planner
 
-> Dynamic A\* Search · Manhattan Heuristic · Fire Discovery Simulation ·
-> Interactive Grid Visualization
-
-A grid-based pathfinding system that simulates emergency evacuation
-using the **A\*** search algorithm.\
-The project supports both **static pathfinding** and **dynamic
-replanning** when hidden fire hazards are discovered during traversal.
-
-This project demonstrates informed search, heuristic design, and
-real-time replanning in uncertain environments.
+Dynamic A\* Search · Manhattan Heuristic · Fire Replanning Simulation ·
+Streamlit GUI
 
 ------------------------------------------------------------------------
 
-## Features
+## 1. Project Overview
 
--    Optimal pathfinding using **A**\* search
--    Dynamic fire discovery with real-time replanning
--    Manhattan heuristic (admissible & optimal for grid movement)
--    Step counter & replan counter
--    Interactive GUI built with Streamlit
--    Built-in test cases for validation
--    No-path detection handling
--    Modular architecture (algorithm separated from UI)
+The Smart Emergency Evacuation Planner is a grid-based pathfinding
+system built using the A\* search algorithm.
 
-------------------------------------------------------------------------
+It supports:
 
-## Project Structure
+• Static A\* search (fire treated as obstacle)\
+• Dynamic A\* search (fire discovered during traversal and triggers
+replanning)
 
-    ├── Astar.py          # Core A* and Dynamic A* implementations
-    ├── GUI.py            # Streamlit-based interactive interface
-    ├── testCase.py       # Standalone algorithm testing (CLI mode)
-    └── requirements.txt  # Python dependencies
+The system includes an interactive Streamlit GUI and predefined test
+cases for demonstration.
 
 ------------------------------------------------------------------------
 
-## Requirements
+## 2. Execution Instructions
 
-  Package     Purpose
-  ----------- ---------------------------------
-  streamlit   Web-based interactive interface
-  heapq       Priority queue for A\* (stdlib)
-  copy        Grid state cloning (stdlib)
+### Requirements
 
-Install dependencies:
+Python 3.8 or higher
 
-``` bash
-pip install -r requirements.txt
-```
+### Install Dependencies
 
-------------------------------------------------------------------------
+Using requirements.txt:
 
-## How to Run
+    pip install -r requirements.txt
 
-### ▶ Run GUI Version
+Or manually:
 
-``` bash
-streamlit run GUI.py
-```
+    pip install streamlit
 
-The app opens automatically at:
-
-http://localhost:8501
+(Standard libraries used: heapq, copy)
 
 ------------------------------------------------------------------------
 
-### ▶ Run Test Cases (No GUI)
+## 3. How to Run
 
-``` bash
-python testCase.py
-```
+### Run GUI Version
 
-------------------------------------------------------------------------
+    streamlit run GUI.py
 
-## GUI Usage Guide
+Then open in browser:
 
-### 1️. Design the Grid
-
-Use the sidebar panel to paint cells:
-
-  Symbol   Meaning
-  -------- ---------
-  S        Start
-  E        Goal
-  \#       Wall
-  F        Fire
+    http://localhost:8501
 
 ------------------------------------------------------------------------
 
-### 2️. Select Mode
+### Run Algorithm Only (CLI Testing)
 
--   **A\* (Static)**\
-    Fire cells act as obstacles from the beginning.
+If using separate test files:
 
--   **Dynamic A**\*\
-    Fire cells are hidden initially and discovered only when the agent
-    reaches them.
+    python testCase.py
 
 ------------------------------------------------------------------------
 
-### 3. Run
+## 4. Preset Test Cases Included
 
-Click **RUN PATHFINDER** to compute the evacuation route.
+The GUI contains the following preset scenarios:
 
-------------------------------------------------------------------------
+TC1 --- Normal A\* - Standard grid with walls - Static mode
 
-## Algorithm Overview
+TC2 --- Fire Avoidance - Fire treated as static obstacle - Static mode
 
-### A\* Search
+TC3A --- Dynamic Replan (fire @1,0) - Fire discovered during traversal -
+Dynamic mode
 
-A\* selects nodes using:
+TC3B --- Dynamic Replan (fire @1,1) - Different fire location - Dynamic
+mode
 
-f(n) = g(n) + h(n)
+TC4 --- No Possible Path - Goal completely blocked - Static mode
 
-  Term   Description
-  ------ -----------------------------------
-  g(n)   Cost from start to node n
-  h(n)   Heuristic estimate from n to goal
-  f(n)   Total estimated cost
+Custom (blank grid) - User-defined grid
 
 ------------------------------------------------------------------------
 
-### Heuristic: Manhattan Distance
+## 5. Sample Input / Output Demonstrations
 
-h(a, b) = \|a.row - b.row\| + \|a.col - b.col\|
+### Example 1 --- TC1 Normal A\*
 
-✔ Admissible\
-✔ Consistent\
-✔ Guarantees optimal path in 4-direction grids
+Grid:
+
+S . . . \# \# . \# . . . E
+
+Mode: Static A\*
+
+Output:
+
+Path Found\
+Steps: 5\
+Replans: 0
+
+Path: (0,0) → (0,1) → (0,2) → (1,2) → (2,2) → (2,3)
 
 ------------------------------------------------------------------------
 
-### Dynamic A\* (Replanning Strategy)
+### Example 2 --- TC3A Dynamic Replan
 
-Dynamic mode simulates incomplete information.
+Grid (fire at 1,0 discovered during traversal):
 
-Execution logic:
+S . . . . . . . . . . E
 
-1.  Compute initial path ignoring fire.
-2.  Move step-by-step.
-3.  If next step is fire:
-    -   Mark it permanently as blocked.
-    -   Increment replan counter.
-    -   Re-run A\* from current position.
+Hidden Fire: (1,0)
+
+Mode: Dynamic A\*
+
+Output:
+
+Path Found\
+Steps: 6\
+Replans: 1
+
+Path (after replanning): (0,0) → (0,1) → (0,2) → (1,2) → (2,2) → (2,3)
+
+------------------------------------------------------------------------
+
+### Example 3 --- TC4 No Possible Path
+
+Grid:
+
+S \# \# \# \# . . . \# . . E
+
+Output:
+
+No Path Found\
+Steps: 0\
+Replans: 0
+
+------------------------------------------------------------------------
+
+## 6. Technical Implementation Overview
+
+### A\* Algorithm
+
+The A\* search algorithm selects nodes based on:
+
+    f(n) = g(n) + h(n)
+
+Where:
+
+g(n) = cost from start to node\
+h(n) = Manhattan heuristic\
+f(n) = estimated total cost
+
+Heuristic used:
+
+    h(a,b) = |row1 - row2| + |col1 - col2|
+
+Movement: 4-directional (up, down, left, right)\
+Cost per move: 1
+
+Priority queue implementation: heapq\
+Best g-cost tracking: dictionary (best_g)
+
+------------------------------------------------------------------------
+
+### Dynamic A\* Strategy
+
+1.  Compute initial path ignoring new fire cells.
+2.  Traverse path step-by-step.
+3.  If next step becomes fire: • Mark cell as blocked\
+    • Increment replan counter\
+    • Re-run A\* from current position\
 4.  Continue until goal reached or no path exists.
-5.  Accumulate all executed steps into a full journey.
 
-The final output always preserves the complete path from the original
-start.
-
-------------------------------------------------------------------------
-
-## Included Test Scenarios
-
-  Scenario                Mode      Description
-  ----------------------- --------- --------------------------
-  Basic Walls             Static    Standard shortest path
-  Static Fire             Static    Fire treated as obstacle
-  Single Hidden Fire      Dynamic   One replan triggered
-  Multiple Hidden Fires   Dynamic   Multiple replans
-  Fully Blocked Grid      Static    No path possible
+Final output includes: • Complete executed path\
+• Total replanning count
 
 ------------------------------------------------------------------------
 
-## Complexity Analysis
+## 7. Complexity Analysis
 
-  Metric         Complexity
-  -------------- ------------------------------
-  Time (A\*)     O(E log V)
-  Space (A\*)    O(V)
-  Dynamic Mode   O(k · A\*) where k = replans
+Static A\*: Time: O(E log V)\
+Space: O(V)
 
-Where: - V = number of grid cells\
-- E = edges between cells
+Dynamic Mode: Worst Case: O(k × A\*)\
+Where k = number of replans
 
 ------------------------------------------------------------------------
 
-## Grid Representation
+## 8. Grid Symbols
 
-  Symbol   Meaning   Behavior
-  -------- --------- ----------------------------------------------------
-  .        Empty     Traversable
-  S        Start     Agent origin
-  E        Goal      Destination
-  \#       Wall      Always blocked
-  F        Fire      Static: blocked · Dynamic: hidden until discovered
+S → Start\
+E → Goal\
+\# → Wall (blocked)\
+F → Fire\
+. → Empty cell
 
 ------------------------------------------------------------------------
 
-## Learning Outcomes
+## 9. Learning Outcomes
 
-This project demonstrates:
-
--   Informed search strategies
--   Heuristic admissibility & optimality
--   Real-time replanning in dynamic environments
--   Simulation modeling
--   Interactive algorithm visualization
--   Clean modular software design
+• Implementation of informed search (A\*)\
+• Heuristic design and admissibility\
+• Real-time replanning in dynamic environments\
+• Use of priority queues\
+• Interactive visualization with Streamlit
 
 ------------------------------------------------------------------------
 
-## Future Improvements
+## 10. License
 
--   Implement D\* Lite for incremental search
--   Add diagonal movement
--   Animate traversal step-by-step
--   Simulate spreading fire over time
--   Add weighted terrain costs
-
-------------------------------------------------------------------------
-
-## Notes
-
--   Coordinates are (row, col) with (0,0) at the top-left.
--   Grid sizes supported: 2×2 up to 12×12.
--   Dynamic mode temporarily hides fire cells before execution.
--   All replanning events are counted and reported.
-
-------------------------------------------------------------------------
-
-## License
-
-This project is for educational purposes.
+Developed for academic purposes.

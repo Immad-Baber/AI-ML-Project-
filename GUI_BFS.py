@@ -1,14 +1,10 @@
 import streamlit as st
 import copy
-from Astar import astar, dynamic_astar
 from BFS import bfs, dynamic_bfs
-from GBFS import gbfs, dynamic_gbfs
-import pickle
-from pathlib import Path
 
 #  PAGE CONFIG
 st.set_page_config(
-    page_title="Smart Emergency Evacuation Planner",
+    page_title="Smart Emergency Evacuation Planner — BFS",
     layout="wide"
 )
 
@@ -21,15 +17,15 @@ html, body, [class*="css"] {
     font-family: 'JetBrains Mono', monospace;
 }
 .title-block {
-    background: linear-gradient(120deg, #0d1117 60%, #1a0d00);
-    border-left: 4px solid #ff4500; border-radius: 0 10px 10px 0;
+    background: linear-gradient(120deg, #0d1117 60%, #001a0d);
+    border-left: 4px solid #00c853; border-radius: 0 10px 10px 0;
     padding: 20px 28px; margin-bottom: 24px;
 }
-.title-block h1 { font-family:'Syne',sans-serif; font-size:1.9rem; color:#ff6b35; margin:0; letter-spacing:1px; }
+.title-block h1 { font-family:'Syne',sans-serif; font-size:1.9rem; color:#00e676; margin:0; letter-spacing:1px; }
 .title-block p  { color:#555e6e; font-size:0.8rem; margin:4px 0 0 0; }
 .section-label {
     font-family:'Syne',sans-serif; font-size:0.72rem; font-weight:700;
-    color:#ff4500; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;
+    color:#00c853; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;
 }
 .grid-wrap {
     display:inline-block; background:#060a0f;
@@ -41,7 +37,7 @@ table.astar-grid td {
     font-size:18px; border:1px solid #0d1117; border-radius:4px;
 }
 .result-box {
-    background:#060a0f; border:1px solid #1c2333; border-left:3px solid #ff4500;
+    background:#060a0f; border:1px solid #1c2333; border-left:3px solid #00c853;
     border-radius:6px; padding:10px 14px; font-size:0.82rem; color:#8b949e;
     margin-top:8px; word-break:break-all; line-height:1.6;
 }
@@ -53,7 +49,7 @@ table.astar-grid td {
     background:#0d1117; border:1px solid #1c2333; border-radius:8px;
     padding:8px 16px; text-align:center; min-width:90px;
 }
-.stat-chip .val { font-family:'Syne',sans-serif; font-size:1.3rem; color:#00aaff; }
+.stat-chip .val { font-family:'Syne',sans-serif; font-size:1.3rem; color:#00e676; }
 .stat-chip .lbl { font-size:0.68rem; color:#555e6e; text-transform:uppercase; letter-spacing:1px; }
 .legend-row { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 18px 0; }
 .legend-chip {
@@ -62,15 +58,15 @@ table.astar-grid td {
     font-size:0.74rem; color:#8b949e;
 }
 div.stButton > button {
-    font-family:'JetBrains Mono',monospace; background:#ff4500; color:white;
+    font-family:'JetBrains Mono',monospace; background:#00c853; color:#080c14;
     border:none; border-radius:6px; padding:7px 18px; font-size:0.85rem;
     width:100%; transition:background 0.2s;
 }
-div.stButton > button:hover { background:#ff6644; color:white; }
+div.stButton > button:hover { background:#00e676; color:#080c14; }
 div[data-testid="stSelectbox"] label,
 div[data-testid="stNumberInput"] label,
 div[data-testid="stRadio"] label { color:#8b949e !important; font-size:0.8rem; }
-section[data-testid="stSidebar"] { background:#0a0d16; border-right:1px solid #1a1a33; }
+section[data-testid="stSidebar"] { background:#0a0d16; border-right:1px solid #001a0d; }
 .fire-tag {
     display:inline-block; background:#2b0a00; border:1px solid #ff4500;
     border-radius:4px; padding:2px 8px; font-size:0.75rem; color:#ff6644; margin:2px;
@@ -84,15 +80,15 @@ section[data-testid="stSidebar"] { background:#0a0d16; border-right:1px solid #1
 
 #  Preset test cases
 PRESETS = {
-    "TC1 — Normal A*": {
+    "TC1 — Normal BFS": {
         "rows": 3, "cols": 4,
         "grid": [['.','.','.','.'],['#','#','.','#'],['.','.','.','.']],
-        "start": (0,0), "goal": (2,3), "fire": [], "mode": "astar",
+        "start": (0,0), "goal": (2,3), "fire": [], "mode": "bfs",
     },
     "TC2 — Fire Avoidance": {
         "rows": 3, "cols": 4,
         "grid": [['.','.','.','.'],['.','#','.','.'],['.','.','.','.']],
-        "start": (0,0), "goal": (2,3), "fire": [(0,2),(1,2)], "mode": "astar",
+        "start": (0,0), "goal": (2,3), "fire": [(0,2),(1,2)], "mode": "bfs",
     },
     "TC3A — Dynamic Replan (fire @1,0)": {
         "rows": 3, "cols": 4,
@@ -107,9 +103,9 @@ PRESETS = {
     "TC4 — No Possible Path": {
         "rows": 3, "cols": 4,
         "grid": [['.','#','#','#'],['#','.','.','.'],['#','.','.','.']],
-        "start": (0,0), "goal": (2,3), "fire": [], "mode": "astar",
+        "start": (0,0), "goal": (2,3), "fire": [], "mode": "bfs",
     },
-    "TC5 — A* Optimal (2 replans, BFS needs 3)": {
+    "TC5 — BFS Suboptimal (3 replans, A* only 2)": {
         "rows": 5, "cols": 6,
         "grid": [
             ['.', '.', '.', '.', '.', '.'],
@@ -119,21 +115,11 @@ PRESETS = {
             ['.', '.', '#', '.', '.', '.'],
         ],
         "start": (0,0), "goal": (4,5), "fire": [(2,1),(3,3),(2,0)], "mode": "dynamic",
-    },   
-    "TC6 — A* optimal (10 steps vs GBFS 12)": {
-        "rows": 5, "cols": 7,
-        "grid": [
-            ['.', '.', '#', '.', '#', '#', '.'],
-            ['.', '#', '#', '.', '.', '.', '.'],
-            ['.', '.', '.', '.', '.', '.', '.'],
-            ['.', '.', '.', '#', '.', '.', '.'],
-            ['.', '#', '.', '#', '.', '#', '.'],
-        ],
-        "start": (0,0), "goal": (4,6), "fire": [], "mode": "dynamic",
     },
+    
     "Custom (blank grid)": {
         "rows": 6, "cols": 8,
-        "grid": None, "start": None, "goal": None, "fire": [], "mode": "astar",
+        "grid": None, "start": None, "goal": None, "fire": [], "mode": "bfs",
     },
 }
 
@@ -163,11 +149,37 @@ def load_preset(name):
 if 'grid' not in st.session_state:
     init_state(5, 7)
 if 'algo_mode' not in st.session_state:
-    st.session_state.algo_mode = 'astar'
-if 'compare_result' not in st.session_state:
-    st.session_state.compare_result = None
+    st.session_state.algo_mode = 'bfs'
 
 #  HELPERS
+def set_cell(r, c, value):
+    g = st.session_state.grid
+    if (r, c) == st.session_state.start and value != 'S':
+        st.session_state.start = None
+    if (r, c) == st.session_state.goal and value != 'E':
+        st.session_state.goal = None
+    if (r, c) in st.session_state.fire_cells and value != 'F':
+        st.session_state.fire_cells.remove((r, c))
+
+    if value == 'S':
+        if st.session_state.start:
+            pr, pc = st.session_state.start
+            g[pr][pc] = '.'
+        st.session_state.start = (r, c)
+        g[r][c] = '.'
+    elif value == 'E':
+        if st.session_state.goal:
+            pr, pc = st.session_state.goal
+            g[pr][pc] = '.'
+        st.session_state.goal = (r, c)
+        g[r][c] = '.'
+    elif value == 'F':
+        g[r][c] = 'F'
+        if (r, c) not in st.session_state.fire_cells:
+            st.session_state.fire_cells.append((r, c))
+    else:
+        g[r][c] = value
+    st.session_state.result = None
 
 
 CELL_STYLE = {
@@ -175,7 +187,7 @@ CELL_STYLE = {
     'E': ('🏁', '#0d1a2b'),
     '#': ('🟫', '#1e1208'),
     'F': ('🔥', '#2b1000'),
-    'P': ('🔵', '#0d1a33'),
+    'P': ('🟢', '#0d2b1a'),
     '.': ('⬛', '#0a0e15'),
 }
 
@@ -223,67 +235,12 @@ def result_html(res):
             f'<br><span style="color:#333e4e;font-size:0.72rem;">{coords}</span>'
             f'</div>')
 
-def set_cell(r, c, token):
-    """Update a grid cell while keeping start/goal/fire state consistent."""
-    grid = st.session_state.grid
-    prev = grid[r][c]
-
-    if prev == 'F' and (r, c) in st.session_state.fire_cells:
-        st.session_state.fire_cells.remove((r, c))
-    if st.session_state.start == (r, c):
-        st.session_state.start = None
-    if st.session_state.goal == (r, c):
-        st.session_state.goal = None
-
-    if token == 'S':
-        if st.session_state.start is not None:
-            sr, sc = st.session_state.start
-            if grid[sr][sc] == 'S':
-                grid[sr][sc] = '.'
-        st.session_state.start = (r, c)
-        grid[r][c] = '.'
-    elif token == 'E':
-        if st.session_state.goal is not None:
-            gr, gc = st.session_state.goal
-            if grid[gr][gc] == 'E':
-                grid[gr][gc] = '.'
-        st.session_state.goal = (r, c)
-        grid[r][c] = '.'
-    elif token == 'F':
-        if (r, c) != st.session_state.start and (r, c) != st.session_state.goal:
-            grid[r][c] = 'F'
-            if (r, c) not in st.session_state.fire_cells:
-                st.session_state.fire_cells.append((r, c))
-    elif token == '#':
-        if (r, c) != st.session_state.start and (r, c) != st.session_state.goal:
-            grid[r][c] = '#'
-    else:
-        grid[r][c] = '.'
-
-def extract_features(grid, fire_cells, start, goal):
-    rows, cols = len(grid), len(grid[0])
-    wall_count = sum(row.count('#') for row in grid)
-    fire_count = len(fire_cells)
-    obstacle_density = (wall_count + fire_count) / (rows * cols)
-    manhattan = abs(start[0] - goal[0]) + abs(start[1] - goal[1])
-    return [rows, cols, wall_count, fire_count, obstacle_density, manhattan]
-
-def load_mode_model():
-    pkl_path = Path(__file__).with_name("mode_model.pkl")
-    if not pkl_path.exists():
-        return None
-    try:
-        with open(pkl_path, "rb") as f:
-            return pickle.load(f)
-    except Exception:
-        return None
-
 
 #  TITLE
 st.markdown("""
 <div class="title-block">
   <h1>🏢 Smart Emergency Evacuation Planner</h1>
-  <p>Dynamic A* Search · Manhattan Heuristic · Fire Spread Simulation · Fully Interactive Grid</p>
+  <p>Breadth-First Search · Uninformed Search · Fire Spread Simulation · Fully Interactive Grid</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -293,7 +250,7 @@ st.markdown("""
   <div class="legend-chip">🏁 Goal (E)</div>
   <div class="legend-chip">🟫 Wall (#)</div>
   <div class="legend-chip">🔥 Fire (F)</div>
-  <div class="legend-chip">🔵 Path</div>
+  <div class="legend-chip">🟢 Path</div>
   <div class="legend-chip">⬛ Empty (.)</div>
 </div>
 """, unsafe_allow_html=True)
@@ -320,8 +277,8 @@ with st.sidebar:
     st.markdown("---")
     st.markdown('<div class="section-label"> Algorithm Mode</div>', unsafe_allow_html=True)
 
-    algo_options = ["A* (static fire = obstacle)", "Dynamic A* (fire triggers replan)"]
-    
+    algo_options = ["BFS (static fire = obstacle)", "Dynamic BFS (fire triggers replan)"]
+
     st.session_state["algo_radio"] = (
         algo_options[1] if st.session_state.algo_mode == "dynamic" else algo_options[0]
     )
@@ -329,11 +286,11 @@ with st.sidebar:
     algo = st.radio(
         "Algorithm",
         algo_options,
-        key="algo_radio",        
+        key="algo_radio",
         label_visibility="collapsed"
     )
-    st.session_state.algo_mode = "dynamic" if "Dynamic" in st.session_state["algo_radio"] else "astar"
-    
+    st.session_state.algo_mode = "dynamic" if "Dynamic" in st.session_state["algo_radio"] else "bfs"
+
 #  MAIN LAYOUT
 left_col, right_col = st.columns([3, 2], gap="large")
 
@@ -343,11 +300,10 @@ with left_col:
     path_to_show = st.session_state.result['path'] if st.session_state.result else None
     st.markdown(render_grid_html(st.session_state.grid, path=path_to_show),
                 unsafe_allow_html=True)
-    
+
     st.markdown("")
 
     # RUN button
-    
     if st.button("▶  RUN PATHFINDER"):
         s = st.session_state.start
         g = st.session_state.goal
@@ -368,61 +324,20 @@ with left_col:
                 for r, c in fire_copy:
                     grid_copy[r][c] = '.'
 
-                path, replannings = dynamic_astar(grid_copy, s, g, fire_copy)
+                path, replannings = dynamic_bfs(grid_copy, s, g, fire_copy)
 
                 st.session_state.result = {
                     'path': path, 'mode': 'dynamic', 'replannings': replannings
                 }
             else:
-                # Mark fire as static obstacles for regular A*
+                # Mark fire as static obstacles for regular BFS
                 for r, c in fire_copy:
                     grid_copy[r][c] = 'F'
-                path = astar(grid_copy, s, g)
+                path = bfs(grid_copy, s, g)
                 st.session_state.result = {
-                    'path': path, 'mode': 'astar', 'replannings': 0
+                    'path': path, 'mode': 'bfs', 'replannings': 0
                 }
             st.rerun()
-
-    if st.button("📊 Compare A* vs BFS vs GBFS"):
-        s = st.session_state.start
-        g = st.session_state.goal
-        if s is None or g is None:
-            st.error("⚠️ Place both **Start (S)** and **Goal (E)** before comparing.")
-        else:
-            grid_copy = copy.deepcopy(st.session_state.grid)
-            fire_copy = list(st.session_state.fire_cells)
-            sr, sc = s
-            gr, gc = g
-            grid_copy[sr][sc] = '.'
-            grid_copy[gr][gc] = '.'
-
-            use_dynamic = (st.session_state.algo_mode == 'dynamic')
-            if use_dynamic:
-                for r, c in fire_copy:
-                    grid_copy[r][c] = '.'
-            else:
-                for r, c in fire_copy:
-                    grid_copy[r][c] = 'F'
-
-            runners = [
-                ("A*", dynamic_astar if use_dynamic else astar),
-                ("BFS", dynamic_bfs if use_dynamic else bfs),
-                ("GBFS", dynamic_gbfs if use_dynamic else gbfs),
-            ]
-            rows_out = []
-            for name, fn in runners:
-                if use_dynamic:
-                    path, replans = fn(copy.deepcopy(grid_copy), s, g, list(fire_copy))
-                else:
-                    path = fn(copy.deepcopy(grid_copy), s, g)
-                    replans = 0
-                rows_out.append({
-                    "Algorithm": name,
-                    "Found Path": "Yes" if path else "No",
-                    "Steps": (len(path) - 1) if path else None,
-                    "Replans": replans,
-                })
-            st.session_state.compare_result = rows_out
 
 # Right panel
 with right_col:
@@ -463,29 +378,6 @@ with right_col:
            Configure your grid and press <b>▶ RUN PATHFINDER</b>
         </div>""", unsafe_allow_html=True)
 
-    if st.session_state.compare_result:
-        st.markdown("---")
-        st.markdown('<div class="section-label"> Algorithm Comparison</div>', unsafe_allow_html=True)
-        st.table(st.session_state.compare_result)
-
-    mode_model = load_mode_model()
-    if mode_model and st.session_state.start and st.session_state.goal:
-        features = extract_features(
-            st.session_state.grid,
-            st.session_state.fire_cells,
-            st.session_state.start,
-            st.session_state.goal
-        )
-        try:
-            predicted = mode_model.predict([features])[0]
-            st.markdown(f"""
-            <div class="result-box success">
-                🤖 Recommended algorithm by trained model: <b>{predicted}</b>
-            </div>
-            """, unsafe_allow_html=True)
-        except Exception:
-            pass
-
     st.markdown("---")
     st.markdown('<div class="section-label"> Grid State</div>', unsafe_allow_html=True)
     st.markdown(f"""
@@ -525,4 +417,3 @@ with right_col:
     if st.button("  Clear All"):
         init_state(st.session_state.rows, st.session_state.cols)
         st.rerun()
-        
