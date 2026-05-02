@@ -18,7 +18,7 @@ def heuristic(a, b):
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 # A* algorithm
-def astar(grid, start, goal):
+def astar(grid, start, goal, predicted_fire=None, cost_multiplier=8):
     rows, cols = len(grid), len(grid[0])
     open_list = []
     # We store the best g-cost for each position to avoid redundant processing
@@ -46,7 +46,11 @@ def astar(grid, start, goal):
                 if grid[r][c] in ['#', 'F']:
                     continue
 
-                new_g = current.g + 1
+                base_cost = 1
+                if predicted_fire and next_pos == predicted_fire:
+                    base_cost = cost_multiplier
+
+                new_g = current.g + base_cost
                 
                 # If we found a shorter path to this neighbor, or haven't visited it:
                 if next_pos not in best_g or new_g < best_g[next_pos]:
@@ -65,14 +69,14 @@ def reconstruct_path(node):
     return path[::-1]
 
 #Dynamic Replanning Function
-def dynamic_astar(grid, start, goal, new_fire_cells):
+def dynamic_astar(grid, start, goal, new_fire_cells, predicted_fire=None, cost_multiplier=8):
     # deepcopy to avoid modifying the original grid outside this function
     grid = copy.deepcopy(grid)
     
     current_position = start
     fires = list(new_fire_cells) 
     replan_count = 0
-    current_path = astar(grid, current_position, goal)
+    current_path = astar(grid, current_position, goal, predicted_fire, cost_multiplier)
     # If no path exists at the start, return immediately
     if not current_path:
         return None, 0 
@@ -89,7 +93,7 @@ def dynamic_astar(grid, start, goal, new_fire_cells):
             fires.remove(next_step)
             replan_count += 1
             # Replan from the current position to the goal with the updated grid
-            new_plan = astar(grid, current_position, goal)
+            new_plan = astar(grid, current_position, goal, predicted_fire, cost_multiplier)
             
             if not new_plan:
                 return None, replan_count  

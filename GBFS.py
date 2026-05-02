@@ -16,7 +16,7 @@ def heuristic(a, b):
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 # GBFS algorithm
-def gbfs(grid, start, goal):
+def gbfs(grid, start, goal, predicted_fire=None, penalty=100):
     rows, cols = len(grid), len(grid[0])
     open_list = []
     visited = set()
@@ -47,6 +47,8 @@ def gbfs(grid, start, goal):
                 if next_pos not in visited:
                     visited.add(next_pos)
                     h = heuristic(next_pos, goal)
+                    if predicted_fire and next_pos == predicted_fire:
+                        h += penalty
                     heapq.heappush(open_list, Node(next_pos, current, h))
 
     return None
@@ -58,12 +60,12 @@ def reconstruct_path(node):
         node = node.parent
     return path[::-1]
 
-def dynamic_gbfs(grid, start, goal, new_fire_cells):
+def dynamic_gbfs(grid, start, goal, new_fire_cells, predicted_fire=None, penalty=100):
     grid = copy.deepcopy(grid)
     current_position = start
     fires = list(new_fire_cells)
     replan_count = 0
-    current_path = gbfs(grid, current_position, goal)
+    current_path = gbfs(grid, current_position, goal, predicted_fire, penalty)
 
     # If no path exists at the start, return immediately
     if not current_path:
@@ -82,7 +84,7 @@ def dynamic_gbfs(grid, start, goal, new_fire_cells):
             fires.remove(next_step)
             replan_count += 1
             # Replan from the current position to the goal with the updated grid
-            new_plan = gbfs(grid, current_position, goal)
+            new_plan = gbfs(grid, current_position, goal, predicted_fire, penalty)
 
             if not new_plan:
                 return None, replan_count

@@ -2,19 +2,23 @@ from collections import deque
 import copy
 
 # BFS algorithm
-def bfs(grid, start, goal):
+def bfs(grid, start, goal, predicted_fire=None):
     rows, cols = len(grid), len(grid[0])
 
     # Queue stores (position, path_so_far)
     queue = deque()
+    deferred_queue = deque()
     queue.append((start, [start]))
 
     # Visited set to avoid revisiting nodes
     visited = set()
     visited.add(start)
 
-    while queue:
-        current_pos, path = queue.popleft()
+    while queue or deferred_queue:
+        if queue:
+            current_pos, path = queue.popleft()
+        else:
+            current_pos, path = deferred_queue.popleft()
 
         if current_pos == goal:
             return path
@@ -35,18 +39,21 @@ def bfs(grid, start, goal):
 
                 if next_pos not in visited:
                     visited.add(next_pos)
-                    queue.append((next_pos, path + [next_pos]))
+                    if predicted_fire and next_pos == predicted_fire:
+                        deferred_queue.append((next_pos, path + [next_pos]))
+                    else:
+                        queue.append((next_pos, path + [next_pos]))
 
     return None
 
 
 # Dynamic Replanning Function (mirrors dynamic_astar structure)
-def dynamic_bfs(grid, start, goal, new_fire_cells):
+def dynamic_bfs(grid, start, goal, new_fire_cells, predicted_fire=None):
     grid = copy.deepcopy(grid)
     current_position = start
     fires = list(new_fire_cells)
     replan_count = 0
-    current_path = bfs(grid, current_position, goal)
+    current_path = bfs(grid, current_position, goal, predicted_fire)
 
     # If no path exists at the start, return immediately
     if not current_path:
@@ -65,7 +72,7 @@ def dynamic_bfs(grid, start, goal, new_fire_cells):
             fires.remove(next_step)
             replan_count += 1
             # Replan from the current position to the goal with the updated grid
-            new_plan = bfs(grid, current_position, goal)
+            new_plan = bfs(grid, current_position, goal, predicted_fire)
 
             if not new_plan:
                 return None, replan_count

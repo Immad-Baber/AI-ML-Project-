@@ -309,29 +309,37 @@ def fire_cell_features(grid, fire_cells, pos):
     return [rows, cols, wall_count, fire_count, obstacle_density, burning_neighbors, min_dist]
 
 
-def run_algorithm(grid, s, g, fire_cells, algo_name, dynamic):
+def run_algorithm(grid, s, g, fire_cells, algo_name, dynamic, predicted_fire=None):
     import time
     grid_copy = copy.deepcopy(grid)
     t0 = time.perf_counter()
     if dynamic:
-        fn = {"A*": dynamic_astar, "BFS": dynamic_bfs, "GBFS": dynamic_gbfs}[algo_name]
         for r, c in fire_cells:
             grid_copy[r][c] = "."
-        path, replans = fn(grid_copy, s, g, list(fire_cells))
+        if algo_name == "A*":
+            path, replans = dynamic_astar(grid_copy, s, g, list(fire_cells), predicted_fire)
+        else:
+            fn = {"BFS": dynamic_bfs, "GBFS": dynamic_gbfs}[algo_name]
+            path, replans = fn(grid_copy, s, g, list(fire_cells), predicted_fire)
     else:
-        fn = {"A*": astar, "BFS": bfs, "GBFS": gbfs}[algo_name]
         for r, c in fire_cells:
             grid_copy[r][c] = "F"
-        path = fn(grid_copy, s, g)
+        if algo_name == "A*":
+            path = astar(grid_copy, s, g, predicted_fire)
+        else:
+            fn = {"BFS": bfs, "GBFS": gbfs}[algo_name]
+            path = fn(grid_copy, s, g, predicted_fire)
         replans = 0
     runtime_ms = (time.perf_counter() - t0) * 1000.0
     return path, replans, runtime_ms
 
 
-def predict_next_fire_cells(grid, fire_cells, fire_model, top_k=3):
+def predict_next_fire_cells(grid, fire_cells, fire_model, top_k=3, agent_pos=None, planned_route=None):
     """Predict top-k most likely next-fire cells using trained fire model."""
     if not fire_cells or fire_model is None or top_k <= 0:
         return []
+    if planned_route is None:
+        planned_route = []
     rows, cols = len(grid), len(grid[0])
     candidates = []
     feature_rows = []
@@ -345,25 +353,35 @@ def predict_next_fire_cells(grid, fire_cells, fire_model, top_k=3):
     if not candidates:
         return []
     probs = fire_model.predict_proba(feature_rows)
-    ranked = sorted(zip(candidates, probs), key=lambda item: item[1], reverse=True)
+
+    def sort_key(item):
+        cell, prob = item
+        prob = float(prob)
+        if agent_pos:
+            dist = abs(cell[0] - agent_pos[0]) + abs(cell[1] - agent_pos[1])
+        else:
+            dist = 0
+        burning_neighbors = 0
+        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nr, nc = cell[0] + dr, cell[1] + dc
+            if 0 <= nr < rows and 0 <= nc < cols and (nr, nc) in fire_set:
+                burning_neighbors += 1
+        on_route = 1 if cell in planned_route else 0
+        return (prob, -dist, burning_neighbors, on_route)
+
+    ranked = sorted(zip(candidates, probs), key=sort_key, reverse=True)
     return [(cell, float(prob)) for cell, prob in ranked[: min(top_k, len(ranked))]]
 
 
 def run_algorithm_with_predicted_fire(grid, s, g, fire_cells, algo_name, dynamic, predicted_fire):
-    """Run algorithm; pre-block predicted fire only for static mode."""
+    """Run algorithm; pass predicted fire instead of pre-blocking."""
     grid_copy = copy.deepcopy(grid)
-    # In dynamic mode, fire events are already handled through replanning.
-    # Pre-blocking predicted fire here can create false "no path" outcomes.
-    if (not dynamic) and predicted_fire is not None:
-        pr, pc = predicted_fire
-        if (pr, pc) not in (s, g) and grid_copy[pr][pc] not in ("#", "F"):
-            grid_copy[pr][pc] = "F"
-    return run_algorithm(grid_copy, s, g, fire_cells, algo_name, dynamic)
+    return run_algorithm(grid_copy, s, g, fire_cells, algo_name, dynamic, predicted_fire)
 
 
-def compare_algorithms_live(grid, s, g, fire_cells, dynamic, fire_model, fire_top_k):
+def compare_algorithms_live(grid, s, g, fire_cells, dynamic, fire_model, fire_top_k, planned_route=None):
     rows_out = []
-    predicted_fire_rows = predict_next_fire_cells(grid, fire_cells, fire_model, top_k=fire_top_k)
+    predicted_fire_rows = predict_next_fire_cells(grid, fire_cells, fire_model, top_k=fire_top_k, agent_pos=s, planned_route=planned_route)
     top_predicted_fire = predicted_fire_rows[0][0] if predicted_fire_rows else None
     for algo_name in ["A*", "BFS", "GBFS"]:
         path, replans, runtime_ms = run_algorithm_with_predicted_fire(
@@ -589,6 +607,7 @@ with left:
                     feats = extract_features(st.session_state.grid, st.session_state.fire_cells, s, g)
                     ml_algo = model.predict([feats])[0]
                     # Validate recommendation against current grid's measured performance.
+                    planned_path = st.session_state.result["path"] if st.session_state.result else None
                     live_rows, live_best, predicted_fire = compare_algorithms_live(
                         st.session_state.grid,
                         s,
@@ -597,6 +616,7 @@ with left:
                         st.session_state.algo_mode == "dynamic",
                         fire_model,
                         fire_top_k,
+                        planned_route=planned_path
                     )
                     algo_name, decision_reason = choose_final_algorithm_by_policy(
                         ml_algo, live_rows, live_best, decision_policy
@@ -645,6 +665,7 @@ with left:
             if s is None or g is None:
                 st.error("Place Start and Goal first.")
             else:
+                planned_path = st.session_state.result["path"] if st.session_state.result else None
                 rows_out, _, _ = compare_algorithms_live(
                     st.session_state.grid,
                     s,
@@ -653,6 +674,7 @@ with left:
                     st.session_state.algo_mode == "dynamic",
                     fire_model,
                     fire_top_k,
+                    planned_route=planned_path
                 )
                 st.session_state.compare_result = rows_out
                 model, _ = load_mode_model()
@@ -665,6 +687,7 @@ with right:
     model, model_error = load_mode_model()
     s, g = st.session_state.start, st.session_state.goal
     if model and s and g:
+        planned_path = st.session_state.result["path"] if st.session_state.result else None
         live_rows, live_best, predicted_fire = compare_algorithms_live(
             st.session_state.grid,
             s,
@@ -673,6 +696,7 @@ with right:
             st.session_state.algo_mode == "dynamic",
             fire_model,
             fire_top_k,
+            planned_route=planned_path
         )
         any_path = any(r["Found Path"] == "Yes" for r in live_rows)
 
@@ -711,7 +735,7 @@ with right:
                 )
             else:
                 st.markdown(
-                    f'<div class="result-box">🔥 Predicted next-fire cells (top {len(predicted_fire)}): <b>{cells_text}</b> (only top-1 is blocked for planning)</div>',
+                    f'<div class="result-box">🔥 Predicted next-fire cells (top {len(predicted_fire)}): <b>{cells_text}</b> (top-1 is penalized/deferred to avoid unless necessary)</div>',
                     unsafe_allow_html=True,
                 )
         elif fire_model is None:
