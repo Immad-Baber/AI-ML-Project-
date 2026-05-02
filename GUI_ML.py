@@ -159,6 +159,19 @@ PRESETS = {
         "fire": [(2, 2)],
         "mode": "dynamic",
     },
+    "TC- Cost Inflation Choke Point": {
+        "rows": 3,
+        "cols": 3,
+        "grid": [
+            [".", "#", "."],
+            [".", ".", "."],
+            [".", "#", "."],
+        ],
+        "start": (1, 0),
+        "goal": (1, 2),
+        "fire": [],
+        "mode": "astar",
+    },
     "Custom (blank grid)": {
         "rows": 6,
         "cols": 8,
@@ -377,6 +390,34 @@ def run_algorithm_with_predicted_fire(grid, s, g, fire_cells, algo_name, dynamic
     """Run algorithm; pass predicted fire instead of pre-blocking."""
     grid_copy = copy.deepcopy(grid)
     return run_algorithm(grid_copy, s, g, fire_cells, algo_name, dynamic, predicted_fire)
+
+
+def cost_inflation_choke_point_test():
+    """Show that predicted fire is costly, not blocked, on a one-door grid."""
+    grid = [
+        [".", "#", "."],
+        [".", ".", "."],
+        [".", "#", "."],
+    ]
+    start = (1, 0)
+    goal = (1, 2)
+    predicted_fire = (1, 1)
+
+    cost_inflated_path = astar(grid, start, goal, predicted_fire=predicted_fire, cost_multiplier=8)
+
+    hard_blocked_grid = copy.deepcopy(grid)
+    hard_blocked_grid[predicted_fire[0]][predicted_fire[1]] = "F"
+    hard_blocked_path = astar(hard_blocked_grid, start, goal)
+
+    return {
+        "grid": grid,
+        "start": start,
+        "goal": goal,
+        "predicted_fire": predicted_fire,
+        "cost_inflated_path": cost_inflated_path,
+        "hard_blocked_path": hard_blocked_path,
+        "passed": cost_inflated_path is not None and hard_blocked_path is None,
+    }
 
 
 def compare_algorithms_live(grid, s, g, fire_cells, dynamic, fire_model, fire_top_k, planned_route=None):
@@ -786,6 +827,29 @@ with right:
     if st.button("Clear All"):
         init_state(st.session_state.rows, st.session_state.cols)
         st.rerun()
+
+    st.markdown("---")
+    st.markdown('<div class="section-label">Cost Inflation Test</div>', unsafe_allow_html=True)
+    if st.button("Run Cost Inflation Test"):
+        st.session_state.cost_test_result = cost_inflation_choke_point_test()
+
+    cost_test = st.session_state.get("cost_test_result")
+    if cost_test:
+        status = "PASS" if cost_test["passed"] else "FAIL"
+        css = "success" if cost_test["passed"] else ""
+        st.markdown(
+            f'<div class="result-box {css}"><b>{status}</b> - predicted fire is penalized, not hard-blocked.</div>',
+            unsafe_allow_html=True,
+        )
+        st.table(
+            [
+                {"Check": "Start", "Value": cost_test["start"]},
+                {"Check": "Goal", "Value": cost_test["goal"]},
+                {"Check": "Predicted fire", "Value": cost_test["predicted_fire"]},
+                {"Check": "Cost-inflated A* path", "Value": cost_test["cost_inflated_path"]},
+                {"Check": "Old hard-blocked path", "Value": cost_test["hard_blocked_path"]},
+            ]
+        )
 
     if st.session_state.result:
         st.markdown("---")
