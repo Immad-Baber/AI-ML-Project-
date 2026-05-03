@@ -18,7 +18,14 @@ def heuristic(a, b):
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 # A* algorithm
-def astar(grid, start, goal, predicted_fire=None, cost_multiplier=8):
+def astar(grid, start, goal, predicted_fires=None, cost_multiplier=8):
+    if predicted_fires is None:
+        predicted_fires = []
+    # If a single tuple was passed, convert to list for consistency
+    if isinstance(predicted_fires, tuple) and len(predicted_fires) == 2 and isinstance(predicted_fires[0], int):
+        predicted_fires = [predicted_fires]
+    
+    predicted_set = set(predicted_fires)
     rows, cols = len(grid), len(grid[0])
     open_list = []
     # We store the best g-cost for each position to avoid redundant processing
@@ -47,7 +54,7 @@ def astar(grid, start, goal, predicted_fire=None, cost_multiplier=8):
                     continue
 
                 base_cost = 1
-                if predicted_fire and next_pos == predicted_fire:
+                if next_pos in predicted_set:
                     base_cost = cost_multiplier
 
                 new_g = current.g + base_cost
@@ -69,14 +76,14 @@ def reconstruct_path(node):
     return path[::-1]
 
 #Dynamic Replanning Function
-def dynamic_astar(grid, start, goal, new_fire_cells, predicted_fire=None, cost_multiplier=8):
+def dynamic_astar(grid, start, goal, new_fire_cells, predicted_fires=None, cost_multiplier=8):
     # deepcopy to avoid modifying the original grid outside this function
     grid = copy.deepcopy(grid)
     
     current_position = start
     fires = list(new_fire_cells) 
     replan_count = 0
-    current_path = astar(grid, current_position, goal, predicted_fire, cost_multiplier)
+    current_path = astar(grid, current_position, goal, predicted_fires, cost_multiplier)
     # If no path exists at the start, return immediately
     if not current_path:
         return None, 0 
@@ -93,7 +100,7 @@ def dynamic_astar(grid, start, goal, new_fire_cells, predicted_fire=None, cost_m
             fires.remove(next_step)
             replan_count += 1
             # Replan from the current position to the goal with the updated grid
-            new_plan = astar(grid, current_position, goal, predicted_fire, cost_multiplier)
+            new_plan = astar(grid, current_position, goal, predicted_fires, cost_multiplier)
             
             if not new_plan:
                 return None, replan_count  

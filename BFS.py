@@ -2,7 +2,12 @@ from collections import deque
 import copy
 
 # BFS algorithm
-def bfs(grid, start, goal, predicted_fire=None):
+def bfs(grid, start, goal, predicted_fires=None):
+    if predicted_fires is None:
+        predicted_fires = []
+    if isinstance(predicted_fires, tuple) and len(predicted_fires) == 2 and isinstance(predicted_fires[0], int):
+        predicted_fires = [predicted_fires]
+    predicted_set = set(predicted_fires)
     rows, cols = len(grid), len(grid[0])
 
     # Queue stores (position, path_so_far)
@@ -39,7 +44,7 @@ def bfs(grid, start, goal, predicted_fire=None):
 
                 if next_pos not in visited:
                     visited.add(next_pos)
-                    if predicted_fire and next_pos == predicted_fire:
+                    if next_pos in predicted_set:
                         deferred_queue.append((next_pos, path + [next_pos]))
                     else:
                         queue.append((next_pos, path + [next_pos]))
@@ -48,12 +53,12 @@ def bfs(grid, start, goal, predicted_fire=None):
 
 
 # Dynamic Replanning Function (mirrors dynamic_astar structure)
-def dynamic_bfs(grid, start, goal, new_fire_cells, predicted_fire=None):
+def dynamic_bfs(grid, start, goal, new_fire_cells, predicted_fires=None):
     grid = copy.deepcopy(grid)
     current_position = start
     fires = list(new_fire_cells)
     replan_count = 0
-    current_path = bfs(grid, current_position, goal, predicted_fire)
+    current_path = bfs(grid, current_position, goal, predicted_fires)
 
     # If no path exists at the start, return immediately
     if not current_path:
@@ -72,7 +77,7 @@ def dynamic_bfs(grid, start, goal, new_fire_cells, predicted_fire=None):
             fires.remove(next_step)
             replan_count += 1
             # Replan from the current position to the goal with the updated grid
-            new_plan = bfs(grid, current_position, goal, predicted_fire)
+            new_plan = bfs(grid, current_position, goal, predicted_fires)
 
             if not new_plan:
                 return None, replan_count

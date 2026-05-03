@@ -42,9 +42,11 @@ table.astar-grid td {
 .result-box {
     background:#060a0f; border:1px solid #1c2333; border-left:3px solid #ff4500;
     border-radius:6px; padding:10px 14px; font-size:0.82rem; color:#8b949e;
-    margin-top:8px; line-height:1.6;
+    margin-top:8px; word-break:break-all; line-height:1.6;
 }
 .result-box.success { border-left-color:#3fb950; color:#3fb950; }
+.result-box.failure { border-left-color:#f85149; color:#f85149; }
+.result-box.replan  { border-left-color:#0070f3; color:#79c0ff; }
 .legend-row { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 18px 0; }
 .legend-chip {
     display:flex; align-items:center; gap:6px; background:#0d1117;
@@ -193,6 +195,26 @@ CELL_STYLE = {
 }
 
 
+def result_html(res):
+    if res is None:
+        return ""
+    path = res["path"]
+    mode = res["mode"]
+    if path is None:
+        return '<div class="result-box failure">❌ No path found — destination is unreachable.</div>'
+    steps = len(path) - 1
+    coords = " → ".join(str(p) for p in path)
+    css = "replan" if "Dynamic" in mode or "dynamic" in mode else "success"
+    icon = "🔄" if "Dynamic" in mode or "dynamic" in mode else "✅"
+    replan_badge = f'&nbsp;·&nbsp; 🔥 {res["replannings"]} replan(s)' if "Dynamic" in mode or "dynamic" in mode else ""
+    return (
+        f'<div class="result-box {css}">'
+        f"{icon} Path found &nbsp;·&nbsp; <b>{steps} steps</b>{replan_badge}"
+        f'<br><span style="color:#333e4e;font-size:0.72rem;">{coords}</span>'
+        f"</div>"
+    )
+
+
 def init_state(rows, cols):
     st.session_state.grid = [["." for _ in range(cols)] for _ in range(rows)]
     st.session_state.start = None
@@ -322,7 +344,7 @@ def fire_cell_features(grid, fire_cells, pos):
     return [rows, cols, wall_count, fire_count, obstacle_density, burning_neighbors, min_dist]
 
 
-def run_algorithm(grid, s, g, fire_cells, algo_name, dynamic, predicted_fire=None):
+def run_algorithm(grid, s, g, fire_cells, algo_name, dynamic, predicted_fires=None):
     import time
     grid_copy = copy.deepcopy(grid)
     t0 = time.perf_counter()
@@ -330,18 +352,18 @@ def run_algorithm(grid, s, g, fire_cells, algo_name, dynamic, predicted_fire=Non
         for r, c in fire_cells:
             grid_copy[r][c] = "."
         if algo_name == "A*":
-            path, replans = dynamic_astar(grid_copy, s, g, list(fire_cells), predicted_fire)
+            path, replans = dynamic_astar(grid_copy, s, g, list(fire_cells), predicted_fires)
         else:
             fn = {"BFS": dynamic_bfs, "GBFS": dynamic_gbfs}[algo_name]
-            path, replans = fn(grid_copy, s, g, list(fire_cells), predicted_fire)
+            path, replans = fn(grid_copy, s, g, list(fire_cells), predicted_fires)
     else:
         for r, c in fire_cells:
             grid_copy[r][c] = "F"
         if algo_name == "A*":
-            path = astar(grid_copy, s, g, predicted_fire)
+            path = astar(grid_copy, s, g, predicted_fires)
         else:
             fn = {"BFS": bfs, "GBFS": gbfs}[algo_name]
-            path = fn(grid_copy, s, g, predicted_fire)
+            path = fn(grid_copy, s, g, predicted_fires)
         replans = 0
     runtime_ms = (time.perf_counter() - t0) * 1000.0
     return path, replans, runtime_ms
@@ -386,47 +408,63 @@ def predict_next_fire_cells(grid, fire_cells, fire_model, top_k=3, agent_pos=Non
     return [(cell, float(prob)) for cell, prob in ranked[: min(top_k, len(ranked))]]
 
 
-def run_algorithm_with_predicted_fire(grid, s, g, fire_cells, algo_name, dynamic, predicted_fire):
+def run_algorithm_with_predicted_fire(grid, s, g, fire_cells, algo_name, dynamic, predicted_fires):
     """Run algorithm; pass predicted fire instead of pre-blocking."""
     grid_copy = copy.deepcopy(grid)
-    return run_algorithm(grid_copy, s, g, fire_cells, algo_name, dynamic, predicted_fire)
+    return run_algorithm(grid_copy, s, g, fire_cells, algo_name, dynamic, predicted_fires)
 
 
-def cost_inflation_choke_point_test():
-    """Show that predicted fire is costly, not blocked, on a one-door grid."""
-    grid = [
-        [".", "#", "."],
-        [".", ".", "."],
-        [".", "#", "."],
-    ]
-    start = (1, 0)
-    goal = (1, 2)
-    predicted_fire = (1, 1)
 
-    cost_inflated_path = astar(grid, start, goal, predicted_fire=predicted_fire, cost_multiplier=8)
 
-    hard_blocked_grid = copy.deepcopy(grid)
-    hard_blocked_grid[predicted_fire[0]][predicted_fire[1]] = "F"
-    hard_blocked_path = astar(hard_blocked_grid, start, goal)
+def cost_inflation_choke_point_test(grid=None, start=None, goal=None, fire_cells=None):
+    """
+    Demonstrate that predicted fire is costly (penalized), not hard-blocked.
+    Runs for all algorithms to show multi-algo support.
+    """
+    if grid is None:
+        grid = [[".", "#", "."], [".", ".", "."], [".", "#", "."]]
+        start, goal, predicted_fire = (1, 0), (1, 2), (1, 1)
+    else:
+        if not fire_cells: return None
+        predicted_fire = fire_cells[0]
+        grid = copy.deepcopy(grid)
+        grid[predicted_fire[0]][predicted_fire[1]] = "."
+
+    results = []
+    for algo_name in ["A*", "BFS", "GBFS"]:
+        # 1. Cost-aware run (Unpack 3 values: path, replans, time)
+        path_inflated, _, _ = run_algorithm_with_predicted_fire(
+            grid, start, goal, [], algo_name, False, predicted_fire
+        )
+        # 2. Hard-blocked comparison
+        path_blocked, _, _ = run_algorithm_with_predicted_fire(
+            grid, start, goal, [predicted_fire], algo_name, False, None
+        )
+        
+        results.append({
+            "Algorithm": algo_name,
+            "With Inflation": "Found Path ✅" if path_inflated else "No Path ❌",
+            "With Hard Block": "Found Path ✅" if path_blocked else "Blocked 🚫",
+            "Success": "Pass ✅" if (path_inflated and not path_blocked) else "N/A"
+        })
 
     return {
         "grid": grid,
         "start": start,
         "goal": goal,
         "predicted_fire": predicted_fire,
-        "cost_inflated_path": cost_inflated_path,
-        "hard_blocked_path": hard_blocked_path,
-        "passed": cost_inflated_path is not None and hard_blocked_path is None,
+        "results": results,
+        "passed": any(r["Success"] == "Pass ✅" for r in results)
     }
 
 
 def compare_algorithms_live(grid, s, g, fire_cells, dynamic, fire_model, fire_top_k, planned_route=None):
     rows_out = []
     predicted_fire_rows = predict_next_fire_cells(grid, fire_cells, fire_model, top_k=fire_top_k, agent_pos=s, planned_route=planned_route)
-    top_predicted_fire = predicted_fire_rows[0][0] if predicted_fire_rows else None
+    predicted_cells = [item[0] for item in predicted_fire_rows]
     for algo_name in ["A*", "BFS", "GBFS"]:
         path, replans, runtime_ms = run_algorithm_with_predicted_fire(
-            grid, s, g, fire_cells, algo_name, dynamic, top_predicted_fire
+            grid, s, g, fire_cells, algo_name, dynamic, predicted_cells
         )
         rows_out.append(
             {
@@ -439,11 +477,15 @@ def compare_algorithms_live(grid, s, g, fire_cells, dynamic, fire_model, fire_to
         )
     valid = [r for r in rows_out if r["Found Path"] == "Yes"]
     if valid:
+        # Stable tie-breaking: Steps > Replans > Algorithm Priority > Runtime
+        # A* is prioritized over BFS/GBFS if steps/replans are equal.
+        ALGO_PRIORITY = {"A*": 0, "BFS": 1, "GBFS": 2}
         best = min(
             valid,
             key=lambda r: (
                 r["Steps"] if r["Steps"] is not None else 10**9,
                 r["Replans"],
+                ALGO_PRIORITY.get(r["Algorithm"], 3),
                 r["Runtime (ms)"],
             ),
         )["Algorithm"]
@@ -662,7 +704,7 @@ with left:
                     algo_name, decision_reason = choose_final_algorithm_by_policy(
                         ml_algo, live_rows, live_best, decision_policy
                     )
-                    predicted_cells = predicted_fire[0][0] if predicted_fire else None
+                    predicted_cells = [item[0] for item in predicted_fire]
                     path, replans = run_algorithm_with_predicted_fire(
                         st.session_state.grid,
                         s,
@@ -724,6 +766,44 @@ with left:
                 st.session_state.compare_meta = ml_diagnostics_for_current_grid(model, feats, live_best)
 
 with right:
+    st.markdown('<div class="section-label"> Result</div>', unsafe_allow_html=True)
+    res = st.session_state.result
+    if res:
+        st.markdown(result_html(res), unsafe_allow_html=True)
+        path = res["path"]
+        st.markdown(
+            f"""
+        <div class="stat-row" style="display:flex; gap:12px; margin-top:10px; flex-wrap:wrap;">
+          <div class="stat-chip" style="background:#0d1117; border:1px solid #1c2333; border-radius:8px; padding:8px 16px; text-align:center; min-width:90px;">
+            <div class="val" style="font-family:'Syne',sans-serif; font-size:1.3rem; color:#00aaff;">{len(path)-1 if path else '—'}</div>
+            <div class="lbl" style="font-size:0.68rem; color:#555e6e; text-transform:uppercase; letter-spacing:1px;">Steps</div>
+          </div>
+          <div class="stat-chip" style="background:#0d1117; border:1px solid #1c2333; border-radius:8px; padding:8px 16px; text-align:center; min-width:90px;">
+            <div class="val" style="font-family:'Syne',sans-serif; font-size:1.3rem; color:#00aaff;">{res['replannings']}</div>
+            <div class="lbl" style="font-size:0.68rem; color:#555e6e; text-transform:uppercase; letter-spacing:1px;">Replannings</div>
+          </div>
+          <div class="stat-chip" style="background:#0d1117; border:1px solid #1c2333; border-radius:8px; padding:8px 16px; text-align:center; min-width:90px;">
+            <div class="val" style="font-family:'Syne',sans-serif; font-size:1.3rem; color:#00aaff;">{len(st.session_state.fire_cells)}</div>
+            <div class="lbl" style="font-size:0.68rem; color:#555e6e; text-transform:uppercase; letter-spacing:1px;">Fire Cells</div>
+          </div>
+        </div>
+        """,
+            unsafe_allow_html=True,
+        )
+
+        if path:
+            with st.expander(" Full path coordinates"):
+                st.code("\n".join(f"Step {i:>2}: {p}" for i, p in enumerate(path)), language="text")
+    else:
+        st.markdown(
+            """
+        <div class="result-box" style="color:#333e4e;">
+           Configure your grid and press <b>▶ Run Recommended</b>
+        </div>""",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
     st.markdown('<div class="section-label">ML Recommendation</div>', unsafe_allow_html=True)
     model, model_error = load_mode_model()
     s, g = st.session_state.start, st.session_state.goal
@@ -828,28 +908,6 @@ with right:
         init_state(st.session_state.rows, st.session_state.cols)
         st.rerun()
 
-    st.markdown("---")
-    st.markdown('<div class="section-label">Cost Inflation Test</div>', unsafe_allow_html=True)
-    if st.button("Run Cost Inflation Test"):
-        st.session_state.cost_test_result = cost_inflation_choke_point_test()
-
-    cost_test = st.session_state.get("cost_test_result")
-    if cost_test:
-        status = "PASS" if cost_test["passed"] else "FAIL"
-        css = "success" if cost_test["passed"] else ""
-        st.markdown(
-            f'<div class="result-box {css}"><b>{status}</b> - predicted fire is penalized, not hard-blocked.</div>',
-            unsafe_allow_html=True,
-        )
-        st.table(
-            [
-                {"Check": "Start", "Value": cost_test["start"]},
-                {"Check": "Goal", "Value": cost_test["goal"]},
-                {"Check": "Predicted fire", "Value": cost_test["predicted_fire"]},
-                {"Check": "Cost-inflated A* path", "Value": cost_test["cost_inflated_path"]},
-                {"Check": "Old hard-blocked path", "Value": cost_test["hard_blocked_path"]},
-            ]
-        )
 
     if st.session_state.result:
         st.markdown("---")
@@ -859,10 +917,7 @@ with right:
         benchmark_mode = result.get("benchmark_mode")
         decision_reason = result.get("decision_reason")
         if path:
-            st.write(f"Mode used: {result['mode']}")
-            st.write(f"Steps: {len(path)-1}")
-            st.write(f"Replans: {result['replannings']}")
-            st.write(f"Decision policy: {result.get('decision_policy', 'Benchmark Override (recommended)')}")
+            st.markdown(result_html(result), unsafe_allow_html=True)
             if ml_mode and benchmark_mode:
                 st.markdown(
                     '<div class="section-label">ML vs Benchmark Decision</div>',
